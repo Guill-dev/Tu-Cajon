@@ -1,5 +1,6 @@
 package com.tucajon.tu_cajon
 
-import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterFragmentActivity
 
-class MainActivity : FlutterActivity()
+// FragmentActivity: la necesita el diálogo de huella, rostro o PIN (local_auth).
+class MainActivity : FlutterFragmentActivity()

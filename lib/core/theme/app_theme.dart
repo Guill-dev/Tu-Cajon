@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import 'app_colors.dart';
+import 'app_text.dart';
 
 abstract final class AppTheme {
   static ThemeData get light {
     final base = ThemeData(
       useMaterial3: true,
+      fontFamily: AppText.familia,
       colorScheme: ColorScheme.fromSeed(
         seedColor: AppColors.primario,
         primary: AppColors.primario,
@@ -16,8 +17,7 @@ abstract final class AppTheme {
       splashFactory: InkSparkle.splashFactory,
     );
     return base.copyWith(
-      textTheme: GoogleFonts.plusJakartaSansTextTheme(base.textTheme)
-          .apply(bodyColor: AppColors.texto, displayColor: AppColors.titulo),
+      textTheme: base.textTheme.apply(bodyColor: AppColors.texto, displayColor: AppColors.titulo),
       textSelectionTheme: const TextSelectionThemeData(
         cursorColor: AppColors.primario,
         selectionColor: AppColors.pulso,

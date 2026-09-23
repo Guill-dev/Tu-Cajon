@@ -1,9 +1,9 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:tu_cajon/app.dart';
 import 'package:tu_cajon/core/router/app_routes.dart';
+import 'package:tu_cajon/core/seguridad/llave_celular.dart';
 import 'package:tu_cajon/data/repositorio/memoria_repositorio.dart';
 import 'package:tu_cajon/features/cajon/cajon_shell.dart';
 import 'package:tu_cajon/shared/widgets/buttons.dart';
@@ -16,14 +16,19 @@ Future<void> abrir(WidgetTester tester, String ruta, {Object? args}) async {
   // Las pantallas se prueban con datos en memoria; la base SQLite real se
   // prueba aparte en base_datos_test.dart.
   await tester.pumpWidget(
-    TuCajonApp(key: UniqueKey(), repo: MemoriaCajonRepositorio(), rutaInicial: ruta, argumentos: args),
+    TuCajonApp(
+      key: UniqueKey(),
+      repo: MemoriaCajonRepositorio(),
+      llave: LlaveSimulada(),
+      rutaInicial: ruta,
+      argumentos: args,
+    ),
   );
   await tester.pump(const Duration(seconds: 2));
 }
 
 void main() {
   setUpAll(() {
-    GoogleFonts.config.allowRuntimeFetching = false;
     // En las pruebas no hay cámara ni permisos reales: el canal de permisos
     // responde "no implementado" y Escanear pasa a su modo simulado.
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
@@ -52,6 +57,7 @@ void main() {
     testWidgets('La pantalla "$nombre" se dibuja sin errores', (tester) async {
       await abrir(tester, ruta, args: args);
       expect(tester.takeException(), isNull);
+      await tester.pump(const Duration(seconds: 5)); // termina animaciones y la llave simulada
     });
   }
 
@@ -59,7 +65,7 @@ void main() {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
-    await tester.pumpWidget(TuCajonApp(repo: MemoriaCajonRepositorio()));
+    await tester.pumpWidget(TuCajonApp(repo: MemoriaCajonRepositorio(), llave: LlaveSimulada()));
     await tester.pump(const Duration(seconds: 2));
 
     // Toda la pantalla de carga es tocable.
@@ -81,9 +87,9 @@ void main() {
     await tester.pump();
     await tester.tap(find.text('Activar la llave'));
     await tester.pump(const Duration(milliseconds: 500));
-    expect(find.text('Toca el sensor de huella'), findsOneWidget);
+    expect(find.text('Usa tu huella, rostro o PIN'), findsOneWidget);
 
-    await tester.pump(const Duration(seconds: 2));
+    await tester.pump(const Duration(seconds: 3));
     expect(find.text('¡Listo! Tu cajón quedó protegido'), findsOneWidget);
 
     await tester.ensureVisible(find.text('Abrir mi cajón'));
@@ -142,7 +148,7 @@ void main() {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
-    await tester.pumpWidget(TuCajonApp(repo: MemoriaCajonRepositorio()));
+    await tester.pumpWidget(TuCajonApp(repo: MemoriaCajonRepositorio(), llave: LlaveSimulada()));
     await tester.pump(const Duration(seconds: 6)); // más que la carga
     expect(find.byType(ArrowButton), findsOneWidget);
     expect(find.text('¿Tus papeles, siempre a la mano?'), findsOneWidget); // no avanzó sola
@@ -154,18 +160,159 @@ void main() {
     addTearDown(tester.view.reset);
     final repo = MemoriaCajonRepositorio();
     await repo.activarLlave();
-    await tester.pumpWidget(TuCajonApp(repo: repo));
+    final llave = LlaveSimulada();
+    await tester.pumpWidget(TuCajonApp(repo: repo, llave: llave));
     await tester.pump(const Duration(seconds: 1));
     // Sin flecha, y tocar la pantalla no hace nada.
     expect(find.byType(ArrowButton), findsNothing);
     await tester.tapAt(const Offset(195, 400));
     await tester.pump(const Duration(seconds: 1));
     expect(find.text('¿Tus papeles, siempre a la mano?'), findsOneWidget);
-    // A los ~4,5 s pasa sola a "Abrir el cajón".
+    // A los ~4,5 s pasa sola a "Abrir el cajón"...
     await tester.pump(const Duration(seconds: 3));
     await tester.pump(const Duration(seconds: 1));
     expect(find.text('Hola de nuevo,'), findsOneWidget);
+    // ...que pide de una vez la llave del celular y, al confirmarla, celebra
+    // (1,1 s) y abre.
+    expect(llave.intentos, 1);
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.byType(CajonShell), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('Desbloqueo: si se cancela la llave, se queda cerrado', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final llave = LlaveSimulada(resultado: ResultadoLlave.cancelado);
+    await tester.pumpWidget(
+      TuCajonApp(repo: MemoriaCajonRepositorio(), llave: llave, rutaInicial: AppRoutes.desbloqueo),
+    );
+    // Animación (0,9 s) + diálogo simulado (1,2 s).
+    await tester.pump(const Duration(seconds: 3));
+    expect(find.text('Hola de nuevo,'), findsOneWidget);
+    expect(find.byType(CajonShell), findsNothing);
+
+    // "Usar el PIN del celular" vuelve a pedir la llave.
+    await tester.tap(find.text('Usar el PIN del celular'));
+    await tester.pump(const Duration(seconds: 3));
+    expect(llave.intentos, 2);
+    expect(find.text('Hola de nuevo,'), findsOneWidget);
+  });
+
+  testWidgets('Desbloqueo: sin bloqueo de pantalla avisa qué hacer', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      TuCajonApp(
+        repo: MemoriaCajonRepositorio(),
+        llave: LlaveSimulada(resultado: ResultadoLlave.sinBloqueo),
+        rutaInicial: AppRoutes.desbloqueo,
+      ),
+    );
+    await tester.pump(const Duration(seconds: 3));
+    expect(find.textContaining('no tiene bloqueo de pantalla'), findsOneWidget);
+    expect(find.text('Hola de nuevo,'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 6)); // el aviso se va solo
+  });
+
+  testWidgets('Protección: si se cancela, no se activa la llave', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final repo = MemoriaCajonRepositorio();
+    await tester.pumpWidget(
+      TuCajonApp(
+        repo: repo,
+        llave: LlaveSimulada(resultado: ResultadoLlave.cancelado),
+        rutaInicial: AppRoutes.proteccion,
+      ),
+    );
+    await tester.pump(const Duration(seconds: 1));
+    await tester.ensureVisible(find.text('Activar la llave'));
+    await tester.pump();
+    await tester.tap(find.text('Activar la llave'));
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('¡Listo! Tu cajón quedó protegido'), findsNothing);
+    expect(await repo.llaveActivada(), isFalse);
+  });
+
+  /// Simula que la persona se va a otra app (o apaga la pantalla).
+  void salirDeLaApp(WidgetTester tester) {
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+  }
+
+  void volverALaApp(WidgetTester tester) {
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+  }
+
+  testWidgets('Al volver de otra app se pide la llave y se sigue donde estaba', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    final llave = LlaveSimulada();
+    await tester.pumpWidget(
+      TuCajonApp(repo: MemoriaCajonRepositorio(), llave: llave, rutaInicial: AppRoutes.desbloqueo),
+    );
+    // Animación + llave + celebración: entra a "Mi cajón".
+    await tester.pump(const Duration(seconds: 4));
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.byType(CajonShell), findsOneWidget);
+
+    // Abre "Preguntar" y se va a otra app.
+    final preguntar = find.bySemanticsLabel('Pregúntale a tu cajón').first;
+    await tester.ensureVisible(preguntar);
+    await tester.pump();
+    await tester.tap(preguntar);
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.text('¿Cuándo vence mi licencia?'), findsOneWidget);
+    salirDeLaApp(tester);
+    await tester.pump();
+
+    // Mientras no vuelva, no se pide la llave.
+    await tester.pump(const Duration(seconds: 3));
+    expect(llave.intentos, 1);
+
+    // Vuelve: lo primero que se ve es el cajón cerrado, y "atrás" no lo salta.
+    volverALaApp(tester);
+    await tester.pump();
+    expect(find.text('Hola de nuevo,'), findsOneWidget);
+    await tester.binding.handlePopRoute();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('Hola de nuevo,'), findsOneWidget);
+
+    // Se pide la llave y queda otra vez en "Preguntar".
+    await tester.pump(const Duration(seconds: 4));
+    await tester.pump(const Duration(seconds: 1));
+    expect(llave.intentos, 2);
+    expect(find.text('Hola de nuevo,'), findsNothing);
+    expect(find.text('¿Cuándo vence mi licencia?'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('Antes de entrar al cajón, salir de la app no pone la llave', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpWidget(
+      TuCajonApp(repo: MemoriaCajonRepositorio(), llave: LlaveSimulada(), rutaInicial: AppRoutes.bienvenida),
+    );
+    await tester.pump(const Duration(seconds: 1));
+    salirDeLaApp(tester);
+    volverALaApp(tester);
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.text('Hola de nuevo,'), findsNothing);
+    expect(find.text('Escribe tu nombre para seguir'), findsOneWidget);
   });
 
   testWidgets('Preguntar responde y Escanear cuenta páginas', (tester) async {
@@ -189,7 +336,9 @@ void main() {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
-    await tester.pumpWidget(TuCajonApp(repo: repo, rutaInicial: AppRoutes.guardar, argumentos: 3));
+    await tester.pumpWidget(
+      TuCajonApp(repo: repo, llave: LlaveSimulada(), rutaInicial: AppRoutes.guardar, argumentos: 3),
+    );
     await tester.pump(const Duration(seconds: 1));
 
     await tester.enterText(find.byType(TextField), 'Certificado bancario');

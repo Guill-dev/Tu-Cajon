@@ -3,6 +3,8 @@
 
     <!-- Solo la cámara, para escanear documentos. -->
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- La llave del cajón: huella, rostro o PIN del celular. -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <!-- El plugin de cámara también pide micrófono y almacenamiento; Tu Cajón no los usa,
          así que se quitan del permiso final de la app. -->

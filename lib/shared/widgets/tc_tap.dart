@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 
 /// Base táctil de la app: una superficie con forma redondeada, borde opcional
 /// y efecto de toque. Todos los botones y tarjetas tocables se construyen

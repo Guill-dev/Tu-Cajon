@@ -181,8 +181,7 @@ Pantalla ──context.repo──▶ CajonRepositorio (interfaz)
 
 | Hoy | Después |
 |---|---|
-| La huella se "activa" sola en 1,7 s | `local_auth` (huella, rostro o PIN real) |
-| La cámara es un dibujo; no se guarda el archivo PDF (`archivo` queda vacío) | `camera` o un escáner de documentos + guardar el PDF cifrado en la carpeta privada |
+| Las fotos se guardan cifradas, pero todavía no se arma un PDF | Unir las páginas en un PDF para compartir |
 | "Subir un archivo" va directo a Guardar | `file_picker` |
 | La IA de "Guardar" siempre propone "Cédula de ciudadanía" | Reconocimiento de texto en el celular (OCR) que llene `textoExtraido` |
 | El chat usa búsqueda + reglas (`preguntar/respuestas_demo.dart`) | Modelo de IA local sobre tus documentos |
@@ -190,16 +189,15 @@ Pantalla ──context.repo──▶ CajonRepositorio (interfaz)
 | WhatsApp y Compartir muestran un aviso | `share_plus` |
 | Ajustes y "Ver completo" no hacen nada | Pendientes |
 
-Ya funcionan de verdad: guardar documentos, renombrar, eliminar, crear perfiles, buscar,
+Ya funcionan de verdad: la llave del cajón (huella, rostro, PIN o patrón del celular, con `local_auth`), que se vuelve a pedir cada vez que se sale de la app (`core/seguridad/cerrojo.dart`), la cámara, guardar documentos, renombrar, eliminar, crear perfiles, buscar,
 descartar sugerencias, y recordar el nombre y la llave entre sesiones.
 
 ---
 
 ## Notas
 
-- **Letras:** hoy se descargan de Google Fonts la primera vez (paquete `google_fonts`).
-  Como la app promete que "nada sale a internet", antes de publicarla conviene incluir los
-  archivos `.ttf` en `assets/fonts/`. El mismo paquete los usa sin conexión.
+- **Letras:** Plus Jakarta Sans va dentro de la app (`assets/fonts/`, pesos 400 a 800,
+  licencia libre en `assets/fonts/OFL.txt`). No se descarga nada de internet.
 - **Letra grande:** los botones y las filas crecen si la persona usa letra grande en su
   celular, en vez de cortar el texto.
 - **Formato del código:** `dart format lib test` (ancho de línea 110, configurado en
