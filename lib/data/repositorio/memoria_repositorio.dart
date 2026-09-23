@@ -144,9 +144,17 @@ class MemoriaCajonRepositorio implements CajonRepositorio {
   }
 
   @override
-  Future<String> guardarDocumento(NuevoDocumento n, {List<Uint8List> paginas = const []}) async {
+  Future<String> guardarDocumento(
+    NuevoDocumento n, {
+    List<Uint8List> paginas = const [],
+    Uint8List? pdf,
+  }) async {
     final id = 'doc-${DateTime.now().microsecondsSinceEpoch}';
-    final archivo = paginas.isEmpty ? null : await _archivos.guardarPaginas(paginas);
+    final archivo = pdf != null
+        ? await _archivos.guardarPdf(pdf, paginas: n.paginas)
+        : paginas.isEmpty
+        ? null
+        : await _archivos.guardarPaginas(paginas);
     _documentos.add(
       Documento(
         id: id,
@@ -168,6 +176,10 @@ class MemoriaCajonRepositorio implements CajonRepositorio {
   @override
   Future<List<Uint8List>> leerPaginas(Documento documento) async =>
       documento.archivo == null ? const [] : _archivos.leerPaginas(documento.archivo!);
+
+  @override
+  Future<Uint8List?> leerPdf(Documento documento) async =>
+      documento.archivo == null ? null : _archivos.leerPdf(documento.archivo!);
 
   @override
   Future<void> renombrarDocumento(String id, String nombre) async {

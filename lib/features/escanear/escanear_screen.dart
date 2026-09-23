@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
@@ -15,6 +16,10 @@ import '../../shared/widgets/buttons.dart';
 import '../../shared/widgets/common.dart';
 import '../../shared/widgets/tc_icon.dart';
 import '../../shared/widgets/tc_tap.dart';
+import 'pagina_editable.dart';
+import 'procesar_foto.dart';
+import 'recorte.dart';
+import 'revisar_foto.dart';
 
 /// Estado de la cámara en la pantalla de escaneo.
 enum _Camara {
@@ -54,21 +59,43 @@ class EscanearScreen extends StatefulWidget {
 
 class _EscanearScreenState extends State<EscanearScreen>
     with SingleTickerProviderStateMixin, WidgetsBindingObserver {
-  static const _maxPaginas = 6;
-  static const _pistas = [
-    'Pon el frente de la cédula sobre una mesa, dentro del marco',
-    '¡Bien! Ahora voltéala y escanea el reverso',
-    'Listo. Puedes agregar otra página o tocar Terminar',
-  ];
+  /// Qué decir arriba del visor, según el formato y las páginas tomadas.
+  String _pista(int n) {
+    if (n > 0 && !(_formato == FormatoFoto.cedula && n == 1)) {
+      return 'Toca una miniatura para revisarla, toma otra página o toca Terminar';
+    }
+    return switch (_formato) {
+      FormatoFoto.cedula =>
+        n == 0
+            ? 'Pon el frente de la cédula sobre una mesa, dentro del marco'
+            : '¡Bien! Ahora voltéala y escanea el reverso',
+      FormatoFoto.completa => 'Se guarda todo lo que ves en el recuadro',
+      _ => 'Pon el documento dentro del marco. Solo se guarda lo que queda adentro',
+    };
+  }
 
   _Camara _estado = _Camara.cargando;
+
+  /// La forma del marco. Se guarda solo lo que queda dentro.
+  FormatoFoto _formato = FormatoFoto.cedula;
+
+  /// Tamaño del visor en pantalla, para saber dónde cae el marco en la foto.
+  Size? _visorTam;
   CameraController? _camara;
   bool _iniciando = false;
   bool _pausada = false;
   bool _tomando = false;
   String _detalleError = '';
 
-  late final List<Uint8List> _fotos = List.of(widget.paginasPrevias);
+  /// Las páginas tomadas. Las que llegan de Guardar ("Otra página") ya
+  /// vienen listas: se toman como si no tuvieran filtro.
+  late final List<PaginaEditable> _fotos = [
+    for (final f in widget.paginasPrevias) PaginaEditable.sinFiltro(f),
+  ];
+
+  /// El filtro que se le pone a las fotos nuevas: el último que se eligió
+  /// al revisar una página.
+  FiltroFoto _filtro = FiltroFoto.original;
   int _simuladas = 0;
   bool _flash = false;
 
@@ -154,7 +181,9 @@ class _EscanearScreenState extends State<EscanearScreen>
       );
       final c = CameraController(
         trasera,
-        ResolutionPreset.veryHigh, // 1080p: se leen bien los números
+        // 4K: las letras pequeñas tienen más detalle. Después la foto se
+        // recorta al marco y se deja en 2400 px como máximo.
+        ResolutionPreset.ultraHigh,
         enableAudio: false,
         imageFormatGroup: ImageFormatGroup.jpeg,
       );
@@ -204,7 +233,7 @@ class _EscanearScreenState extends State<EscanearScreen>
   }
 
   Future<void> _capturar() async {
-    if (_paginas >= _maxPaginas || _tomando) return;
+    if (_tomando) return;
     if (_estado == _Camara.simulada) {
       HapticFeedback.lightImpact();
       setState(() => _simuladas++);
@@ -213,7 +242,12 @@ class _EscanearScreenState extends State<EscanearScreen>
     }
     final c = _camara;
     if (_estado != _Camara.lista || c == null || !c.value.isInitialized) return;
-    _tomando = true;
+    // Dónde está el marco ahora (antes de que algo cambie mientras se toma).
+    final tam = c.value.previewSize;
+    final visor = _visorTam;
+    final formato = _formato;
+    final filtro = _filtro;
+    setState(() => _tomando = true);
     try {
       HapticFeedback.lightImpact();
       _destello.forward(from: 0);
@@ -225,21 +259,121 @@ class _EscanearScreenState extends State<EscanearScreen>
       } on FileSystemException {
         // Si ya no está, mejor.
       }
-      if (mounted) setState(() => _fotos.add(bytes));
+      // Se queda solo lo que está dentro del marco. En vertical la cámara
+      // entrega la vista previa "acostada": se invierten ancho y alto.
+      Rect? recorte;
+      double? proporcion;
+      if (tam != null && visor != null) {
+        final imagenCamara = Size(tam.height, tam.width);
+        proporcion = imagenCamara.aspectRatio;
+        recorte = marcoEnImagen(
+          visor: visor,
+          marco: marcoEnVisor(visor, formato),
+          imagenCamara: imagenCamara,
+        );
+      }
+      PaginaEditable pagina;
+      try {
+        final lista = await prepararPagina(
+          bytes,
+          recorte: recorte,
+          proporcionCamara: proporcion,
+          filtro: filtro,
+        );
+        pagina = PaginaEditable(base: lista.base, filtro: filtro, foto: lista.foto);
+      } catch (e) {
+        debugPrint('No se pudo preparar la foto; se guarda tal cual: $e');
+        pagina = PaginaEditable.sinFiltro(bytes);
+      }
+      if (mounted) setState(() => _fotos.add(pagina));
     } on CameraException {
       if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(const SnackBar(content: Text('No se pudo tomar la foto. Inténtalo otra vez.')));
       }
     } finally {
-      _tomando = false;
+      if (mounted) {
+        setState(() => _tomando = false);
+      } else {
+        _tomando = false;
+      }
     }
+  }
+
+  /// Abre la página [i] en grande para conservarla, recortarla o eliminarla.
+  Future<void> _revisar(int i) async {
+    if (i >= _fotos.length || _tomando) return;
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    // Mientras se revisa, la cámara descansa.
+    final c = _camara;
+    try {
+      await c?.pausePreview();
+    } on CameraException {
+      // Si no se puede pausar, sigue andando: no pasa nada.
+    }
+    if (!mounted) return;
+    final r = await abrirRevision(context, _fotos[i], numero: i + 1, total: _fotos.length);
+    try {
+      if (c != null && c == _camara) await c.resumePreview();
+    } on CameraException {
+      // La cámara se reabre sola al volver a la app si hiciera falta.
+    }
+    if (!mounted || r == null || i >= _fotos.length) return;
+    switch (r) {
+      case FotoConservada(:final base, :final filtro, :final foto, :final aTodas):
+        setState(() {
+          _fotos[i] = PaginaEditable(base: base, filtro: filtro, foto: foto);
+          _filtro = filtro; // las fotos nuevas salen con el mismo filtro
+        });
+        if (aTodas) await _filtrarTodas(filtro, messenger);
+      case FotoEliminada():
+        final quitada = _fotos[i];
+        setState(() => _fotos.removeAt(i));
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text('Página ${i + 1} eliminada'),
+            behavior: SnackBarBehavior.floating,
+            margin: const EdgeInsets.fromLTRB(20, 0, 20, 200),
+            duration: const Duration(seconds: 4),
+            action: SnackBarAction(
+              label: 'Deshacer',
+              textColor: AppColors.camaraMarco,
+              onPressed: () {
+                if (mounted) setState(() => _fotos.insert(math.min(i, _fotos.length), quitada));
+              },
+            ),
+          ),
+        );
+    }
+  }
+
+  /// Pone el [filtro] en todas las páginas, partiendo de cada foto sin filtro.
+  /// Las miniaturas se van actualizando una por una.
+  Future<void> _filtrarTodas(FiltroFoto filtro, ScaffoldMessengerState messenger) async {
+    if (_fotos.every((p) => p.filtro == filtro)) return;
+    setState(() => _tomando = true);
+    await filtrarTodas(_fotos, filtro, (vieja, nueva) {
+      // Por si la lista cambió mientras tanto, se busca la misma página.
+      final k = _fotos.indexOf(vieja);
+      if (mounted && k >= 0) setState(() => _fotos[k] = nueva);
+    });
+    if (!mounted) return;
+    setState(() => _tomando = false);
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text('Filtro «${filtro.etiqueta}» en todas las páginas'),
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.fromLTRB(20, 0, 20, 200),
+        duration: const Duration(seconds: 3),
+      ),
+    );
   }
 
   void _terminar() {
     Navigator.of(context).pushReplacementNamed(
       AppRoutes.guardar,
-      arguments: _estado == _Camara.simulada ? _simuladas : List<Uint8List>.of(_fotos),
+      arguments: _estado == _Camara.simulada ? _simuladas : [for (final p in _fotos) p.foto],
     );
   }
 
@@ -296,51 +430,88 @@ class _EscanearScreenState extends State<EscanearScreen>
                 child: AnimatedSwitcher(
                   duration: const Duration(milliseconds: 200),
                   child: Semantics(
-                    key: ValueKey(n.clamp(0, 2)),
+                    key: ValueKey(_pista(n)),
                     liveRegion: true,
                     child: Text(
-                      _pistas[n.clamp(0, 2)],
+                      _pista(n),
                       textAlign: TextAlign.center,
                       style: AppText.body(16, color: Colors.white, height: 1.4),
                     ),
                   ),
                 ),
               ),
+              // Forma del marco: se guarda solo lo que queda adentro.
+              if (hayCamara)
+                _SelectorFormato(actual: _formato, onElegir: (f) => setState(() => _formato = f)),
               // Visor de la cámara
               Expanded(
                 child: Container(
-                  margin: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+                  margin: EdgeInsets.fromLTRB(20, hayCamara ? 10 : 16, 20, 0),
                   clipBehavior: Clip.antiAlias,
                   decoration: BoxDecoration(
                     color: AppColors.camaraMesa,
                     borderRadius: BorderRadius.circular(20),
                   ),
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      ..._visor(esFrente),
-                      if (hayCamara)
-                        Positioned(
-                          bottom: 14,
-                          child: Text(
-                            esFrente ? 'Frente' : 'Reverso',
-                            style: AppText.bold(15, color: AppColors.camaraEtiqueta),
-                          ),
-                        ),
-                      // Destello de la foto
-                      Positioned.fill(
-                        child: IgnorePointer(
-                          child: AnimatedBuilder(
-                            animation: _destello,
-                            builder: (context, _) => ColoredBox(
-                              color: Colors.white.withValues(
-                                alpha: 0.85 * (1 - Curves.easeOut.transform(_destello.value)),
+                  child: LayoutBuilder(
+                    builder: (context, limites) {
+                      _visorTam = limites.biggest;
+                      return Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          ..._visor(esFrente, limites.biggest),
+                          if (hayCamara && _formato != FormatoFoto.completa)
+                            Positioned(
+                              bottom: 14,
+                              child: Text(
+                                _formato == FormatoFoto.cedula
+                                    ? (esFrente ? 'Frente' : 'Reverso')
+                                    : 'Se guarda lo que está en el marco',
+                                style: AppText.bold(15, color: AppColors.camaraEtiqueta),
+                              ),
+                            ),
+                          // Filtro que se le pondrá a las fotos nuevas; tocarlo lo quita.
+                          if (hayCamara && _filtro != FiltroFoto.original)
+                            Positioned(
+                              top: 12,
+                              left: 12,
+                              child: TcTap(
+                                onTap: () => setState(() => _filtro = FiltroFoto.original),
+                                color: const Color(0x99000000),
+                                radius: 18,
+                                height: 36,
+                                padding: const EdgeInsets.symmetric(horizontal: 12),
+                                semanticLabel: 'Filtro ${_filtro.etiqueta} activo. Toca para quitarlo',
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  spacing: 6,
+                                  children: [
+                                    const TcIcon(
+                                      AppIcons.destelloSolo,
+                                      size: 16,
+                                      color: AppColors.camaraFlash,
+                                    ),
+                                    Text(_filtro.etiqueta, style: AppText.bold(13, color: Colors.white)),
+                                    const TcIcon(AppIcons.cerrar, size: 14, color: Colors.white),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          // Destello de la foto
+                          Positioned.fill(
+                            child: IgnorePointer(
+                              child: AnimatedBuilder(
+                                animation: _destello,
+                                builder: (context, _) => ColoredBox(
+                                  color: Colors.white.withValues(
+                                    alpha: 0.85 * (1 - Curves.easeOut.transform(_destello.value)),
+                                  ),
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                      ),
-                    ],
+                        ],
+                      );
+                    },
                   ),
                 ),
               ),
@@ -367,10 +538,16 @@ class _EscanearScreenState extends State<EscanearScreen>
                                 itemCount: n,
                                 separatorBuilder: (_, _) => const SizedBox(width: 8),
                                 itemBuilder: (_, i) => Center(
-                                  child: _Miniatura(
-                                    numero: i + 1,
-                                    imagen: i < _fotos.length ? _fotos[i] : null,
-                                  ),
+                                  child: i < _fotos.length
+                                      // La clave es la foto: si se recorta, la miniatura
+                                      // nueva entra con su animación.
+                                      ? _Miniatura(
+                                          key: ObjectKey(_fotos[i].foto),
+                                          numero: i + 1,
+                                          imagen: _fotos[i].foto,
+                                          onTap: () => _revisar(i),
+                                        )
+                                      : _Miniatura(numero: i + 1),
                                 ),
                               ),
                             ),
@@ -385,7 +562,12 @@ class _EscanearScreenState extends State<EscanearScreen>
                           ),
                         ),
                         Expanded(
-                          child: Center(child: _Obturador(onTap: hayCamara ? _capturar : null)),
+                          child: Center(
+                            child: _Obturador(
+                              onTap: hayCamara && !_tomando ? _capturar : null,
+                              procesando: _tomando,
+                            ),
+                          ),
                         ),
                         SizedBox(
                           width: 112,
@@ -428,7 +610,7 @@ class _EscanearScreenState extends State<EscanearScreen>
   }
 
   /// Lo que se ve dentro del visor según el estado de la cámara.
-  List<Widget> _visor(bool esFrente) {
+  List<Widget> _visor(bool esFrente, Size visor) {
     switch (_estado) {
       case _Camara.lista:
         final c = _camara!;
@@ -444,7 +626,9 @@ class _EscanearScreenState extends State<EscanearScreen>
                     child: SizedBox(width: tam.height, height: tam.width, child: CameraPreview(c)),
                   ),
           ),
-          const _MarcoDocumento(),
+          Positioned.fill(
+            child: _MarcoDocumento(marco: marcoEnVisor(visor, _formato), formato: _formato),
+          ),
         ];
       case _Camara.simulada:
         return [
@@ -515,25 +699,96 @@ class _EscanearScreenState extends State<EscanearScreen>
   }
 }
 
-/// Marco con esquinas del tamaño de una cédula (85,6 × 54 mm) sobre la cámara.
+/// El marco sobre la cámara: esquinas donde empieza y termina la foto, y lo
+/// que queda afuera oscurecido (eso no se guarda). En "Completa" solo van las
+/// esquinas en los bordes del visor.
 class _MarcoDocumento extends StatelessWidget {
-  const _MarcoDocumento();
+  const _MarcoDocumento({required this.marco, required this.formato});
+
+  final Rect marco;
+  final FormatoFoto formato;
 
   @override
   Widget build(BuildContext context) {
-    return const IgnorePointer(
-      child: FractionallySizedBox(
-        widthFactor: 0.86,
-        child: AspectRatio(
-          aspectRatio: 1.586,
-          child: Stack(
-            children: [
-              _Esquina(top: true, left: true),
-              _Esquina(top: true, left: false),
-              _Esquina(top: false, left: true),
-              _Esquina(top: false, left: false),
-            ],
+    final completa = formato == FormatoFoto.completa;
+    final esquinas = completa ? marco.deflate(10) : marco;
+    return IgnorePointer(
+      child: Stack(
+        children: [
+          if (!completa) Positioned.fill(child: CustomPaint(painter: _AfueraPainter(marco))),
+          Positioned.fromRect(
+            rect: esquinas,
+            child: const Stack(
+              children: [
+                _Esquina(top: true, left: true),
+                _Esquina(top: true, left: false),
+                _Esquina(top: false, left: true),
+                _Esquina(top: false, left: false),
+              ],
+            ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Oscurece todo menos el marco.
+class _AfueraPainter extends CustomPainter {
+  const _AfueraPainter(this.marco);
+
+  final Rect marco;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final afuera = Path()
+      ..fillType = PathFillType.evenOdd
+      ..addRect(Offset.zero & size)
+      ..addRRect(RRect.fromRectAndRadius(marco, const Radius.circular(10)));
+    canvas.drawPath(afuera, Paint()..color = const Color(0x8C000000));
+  }
+
+  @override
+  bool shouldRepaint(_AfueraPainter oldDelegate) => oldDelegate.marco != marco;
+}
+
+/// Fila de botones para elegir la forma del marco.
+class _SelectorFormato extends StatelessWidget {
+  const _SelectorFormato({required this.actual, required this.onElegir});
+
+  final FormatoFoto actual;
+  final ValueChanged<FormatoFoto> onElegir;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 48,
+      child: NoScrollbar(
+        child: ListView.separated(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
+          itemCount: FormatoFoto.values.length,
+          separatorBuilder: (_, _) => const SizedBox(width: 8),
+          itemBuilder: (_, i) {
+            final f = FormatoFoto.values[i];
+            final elegido = f == actual;
+            return TcTap(
+              onTap: () => onElegir(f),
+              color: elegido ? Colors.white : const Color(0x1FFFFFFF),
+              radius: 19,
+              height: 38,
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              semanticLabel: 'Formato ${f.etiqueta}',
+              selected: elegido,
+              child: Center(
+                widthFactor: 1,
+                child: Text(
+                  f.etiqueta,
+                  style: AppText.bold(14, color: elegido ? AppColors.fondoCamara : Colors.white),
+                ),
+              ),
+            );
+          },
         ),
       ),
     );
@@ -699,12 +954,15 @@ class _EsquinaPainter extends CustomPainter {
 }
 
 class _Miniatura extends StatelessWidget {
-  const _Miniatura({required this.numero, this.imagen});
+  const _Miniatura({super.key, required this.numero, this.imagen, this.onTap});
 
   final int numero;
 
   /// La foto tomada (JPEG); en modo simulado es `null`.
   final Uint8List? imagen;
+
+  /// Abre la foto en grande para revisarla.
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -718,39 +976,45 @@ class _Miniatura extends StatelessWidget {
         child: Transform.scale(scale: 0.6 + 0.4 * t, child: child),
       ),
       child: Semantics(
-        label: 'Página $numero',
-        child: SizedBox(
-          width: 50,
-          height: 62,
-          child: Stack(
-            clipBehavior: Clip.none,
-            children: [
-              Container(
-                width: 44,
-                height: 56,
-                clipBehavior: Clip.antiAlias,
-                decoration: BoxDecoration(
-                  color: AppColors.idFondo,
-                  border: Border.all(color: AppColors.camaraMarco, width: 2),
-                  borderRadius: BorderRadius.circular(6),
+        label: onTap == null ? 'Página $numero' : 'Página $numero. Toca para revisarla',
+        button: onTap != null,
+        onTap: onTap,
+        child: GestureDetector(
+          onTap: onTap,
+          behavior: HitTestBehavior.opaque,
+          child: SizedBox(
+            width: 50,
+            height: 62,
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Container(
+                  width: 44,
+                  height: 56,
+                  clipBehavior: Clip.antiAlias,
+                  decoration: BoxDecoration(
+                    color: AppColors.idFondo,
+                    border: Border.all(color: AppColors.camaraMarco, width: 2),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: imagen == null
+                      ? null
+                      // cacheWidth: decodifica la miniatura pequeña, no la foto grande entera.
+                      : Image.memory(imagen!, fit: BoxFit.cover, cacheWidth: 120, gaplessPlayback: true),
                 ),
-                child: imagen == null
-                    ? null
-                    // cacheWidth: decodifica la miniatura pequeña, no la foto de 1080p entera.
-                    : Image.memory(imagen!, fit: BoxFit.cover, cacheWidth: 120, gaplessPlayback: true),
-              ),
-              Positioned(
-                right: 0,
-                bottom: 0,
-                child: Container(
-                  width: 22,
-                  height: 22,
-                  decoration: const BoxDecoration(color: AppColors.primario, shape: BoxShape.circle),
-                  alignment: Alignment.center,
-                  child: Text('$numero', style: AppText.bold(12, color: Colors.white)),
+                Positioned(
+                  right: 0,
+                  bottom: 0,
+                  child: Container(
+                    width: 22,
+                    height: 22,
+                    decoration: const BoxDecoration(color: AppColors.primario, shape: BoxShape.circle),
+                    alignment: Alignment.center,
+                    child: Text('$numero', style: AppText.bold(12, color: Colors.white)),
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -759,10 +1023,13 @@ class _Miniatura extends StatelessWidget {
 }
 
 class _Obturador extends StatelessWidget {
-  const _Obturador({required this.onTap});
+  const _Obturador({required this.onTap, this.procesando = false});
 
   /// `null` mientras la cámara no está lista (el botón se ve apagado).
   final VoidCallback? onTap;
+
+  /// Recortando la foto recién tomada: una ruedita dentro del botón.
+  final bool procesando;
 
   @override
   Widget build(BuildContext context) {
@@ -775,7 +1042,7 @@ class _Obturador extends StatelessWidget {
         onTap: onTap,
         child: AnimatedOpacity(
           duration: const Duration(milliseconds: 200),
-          opacity: onTap == null ? 0.35 : 1,
+          opacity: onTap == null && !procesando ? 0.35 : 1,
           child: Container(
             width: 80,
             height: 80,
@@ -788,6 +1055,10 @@ class _Obturador extends StatelessWidget {
               width: 62,
               height: 62,
               decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+              padding: const EdgeInsets.all(18),
+              child: procesando
+                  ? const CircularProgressIndicator(strokeWidth: 3, color: AppColors.primario)
+                  : null,
             ),
           ),
         ),

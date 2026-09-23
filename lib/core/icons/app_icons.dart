@@ -46,6 +46,11 @@ abstract final class AppIcons {
   static const reemplazar =
       'M20 11a8 8 0 0 0-14.3-4.9L4 8 M4 4v4h4 M4 13a8 8 0 0 0 14.3 4.9L20 16 M20 20v-4h-4';
   static const basura = 'M4 7h16 M9.5 7V4.5h5V7 M6 7l1 13h10l1-13 M10 11v5 M14 11v5';
+  static const recortar = 'M6 2v14a2 2 0 0 0 2 2h14 M18 22V8a2 2 0 0 0-2-2H2';
+  static const restablecer = 'M4 12a8 8 0 1 0 2.3-5.6 M4 4v4h4';
+  static const arrastrar = 'M5 8h14 M5 12h14 M5 16h14';
+  static const galeria =
+      'M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z M3 16l5-5 4 4 3-3 6 6 M15.5 8a1.5 1.5 0 1 0 0 3a1.5 1.5 0 1 0 0-3z';
   static const compartir =
       'M18 3a2.5 2.5 0 1 0 0 5a2.5 2.5 0 1 0 0-5z M6 9.5a2.5 2.5 0 1 0 0 5a2.5 2.5 0 1 0 0-5z M18 16a2.5 2.5 0 1 0 0 5a2.5 2.5 0 1 0 0-5z M8.2 10.8l7.6-4.3 M8.2 13.2l7.6 4.3';
   static const enviar = 'M4 12l16-8-6 8 6 8z';

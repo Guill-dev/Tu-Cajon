@@ -78,6 +78,7 @@ abstract final class AppColors {
   static const camaraFlash = Color(0xFFFCE38A);
   static const camaraEtiqueta = Color(0xFFE6E8F5);
   static const camaraTerminarOff = Color(0xFF9CA1B8);
+  static const camaraEliminar = Color(0xFFFF9A92); // rojo claro, legible sobre el fondo oscuro
 
   // Documento de identidad dibujado
   static const idFondo = Color(0xFFE8ECF8);

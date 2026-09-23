@@ -16,6 +16,7 @@ import '../../shared/widgets/tc_icon.dart';
 import '../../shared/widgets/tc_tap.dart';
 import '../../shared/widgets/toast.dart';
 import '../avisos/sugerencias.dart';
+import '../compartir/enviar_documento.dart';
 import 'widgets/avatar_perfil.dart';
 import 'widgets/tarjeta_documento.dart';
 
@@ -92,6 +93,18 @@ class _InicioScreenState extends State<InicioScreen> with ToastMixin {
       _busqueda.addListener(_alBuscar);
       _abrirStreams();
     });
+  }
+
+  /// Mientras se arma un PDF no se empieza otro envío.
+  bool _enviando = false;
+
+  /// El botón verde de cada tarjeta: arma el PDF y abre WhatsApp.
+  Future<void> _enviarPorWhatsApp(Documento d) async {
+    if (_enviando) return;
+    _enviando = true;
+    showToast('Preparando “${d.nombre}” en PDF…');
+    await enviarDocumento(context, d, porWhatsApp: true, avisar: (m) => mounted ? showToast(m) : null);
+    _enviando = false;
   }
 
   void _verTodos() {
@@ -218,7 +231,7 @@ class _InicioScreenState extends State<InicioScreen> with ToastMixin {
                             hoy: hoy,
                             onAbrir: () =>
                                 Navigator.of(context).pushNamed(AppRoutes.detalle, arguments: d.id),
-                            onWhatsApp: () => showToast('Abriendo WhatsApp con “${d.nombre}”…'),
+                            onWhatsApp: () => _enviarPorWhatsApp(d),
                           ),
                         if (todos.isEmpty)
                           _Vacio(

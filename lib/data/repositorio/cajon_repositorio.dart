@@ -43,12 +43,17 @@ abstract interface class CajonRepositorio {
   /// Busca en todos los perfiles; los más relevantes primero.
   Future<List<Documento>> buscar(String texto);
 
-  /// Guarda el documento. Si llegan [paginas] (fotos JPEG de la cámara), se
-  /// guardan cifradas y el documento queda enlazado a ellas.
-  Future<String> guardarDocumento(NuevoDocumento nuevo, {List<Uint8List> paginas = const []});
+  /// Guarda el documento. Si llegan [paginas] (fotos JPEG de la cámara o la
+  /// galería) o un [pdf] subido, se guardan cifrados y el documento queda
+  /// enlazado a ellos.
+  Future<String> guardarDocumento(NuevoDocumento nuevo, {List<Uint8List> paginas = const [], Uint8List? pdf});
 
-  /// Las fotos de las páginas, ya descifradas (vacío si no tiene archivo).
+  /// Las fotos de las páginas, ya descifradas (vacío si no tiene archivo o
+  /// si es un PDF subido).
   Future<List<Uint8List>> leerPaginas(Documento documento);
+
+  /// El PDF subido, ya descifrado (`null` si el documento son fotos).
+  Future<Uint8List?> leerPdf(Documento documento);
 
   Future<void> renombrarDocumento(String id, String nombre);
   Future<void> eliminarDocumento(String id);

@@ -11,6 +11,7 @@ import '../../features/desbloqueo/desbloqueo_screen.dart';
 import '../../features/detalle/detalle_screen.dart';
 import '../../features/escanear/escanear_screen.dart';
 import '../../features/guardar/guardar_screen.dart';
+import '../../features/paginas/paginas_screen.dart';
 import '../../features/perfil/agregar_perfil_screen.dart';
 import '../../features/preguntar/preguntar_screen.dart';
 import '../../features/proteccion/proteccion_screen.dart';
@@ -25,6 +26,7 @@ abstract final class AppRoutes {
   static const detalle = '/detalle'; // 6 · Documento
   static const agregar = '/agregar'; // 8 · Agregar documento
   static const escanear = '/escanear'; // 9 · Escanear
+  static const paginas = '/paginas'; // Tus páginas (fotos de la galería)
   static const guardar = '/guardar'; // 10 · Guardar
   static const preguntar = '/preguntar'; // 11 · Pregúntale a tu cajón
   static const nuevoPerfil = '/perfil/nuevo'; // 12 · Nuevo perfil
@@ -43,11 +45,21 @@ abstract final class AppRoutes {
       agregar => const AgregarScreen(),
       // Escanear: puede recibir las fotos ya tomadas ("Otra página").
       escanear => EscanearScreen(paginasPrevias: args is List<Uint8List> ? args : const []),
-      // Guardar: recibe las fotos de la cámara, o cuántas páginas simuladas hubo.
-      guardar =>
-        args is List<Uint8List>
-            ? GuardarScreen(fotos: args, paginas: args.length)
-            : GuardarScreen(paginas: args is int ? args : 2),
+      // Tus páginas: fotos elegidas en la galería.
+      paginas => PaginasScreen(entrada: args is EntradaPaginas ? args : const EntradaPaginas()),
+      // Guardar: un PDF subido, fotos de la galería o de la cámara, o cuántas
+      // páginas simuladas hubo.
+      guardar => switch (args) {
+        PdfSubido pdf => GuardarScreen(pdf: pdf),
+        FotosDeGaleria(:final fotos) => GuardarScreen(
+          fotos: fotos,
+          paginas: fotos.length,
+          origen: OrigenFotos.galeria,
+        ),
+        List<Uint8List> fotos => GuardarScreen(fotos: fotos, paginas: fotos.length),
+        int n => GuardarScreen(paginas: n),
+        _ => const GuardarScreen(),
+      },
       preguntar => const PreguntarScreen(),
       nuevoPerfil => const AgregarPerfilScreen(),
       catalogo => const CatalogoScreen(),

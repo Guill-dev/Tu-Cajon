@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Lo único que otra app puede leer (y solo con permiso al compartir):
+     los PDF temporales de la carpeta cache/compartidos. -->
+<paths>
+    <cache-path name="compartidos" path="compartidos/" />
+</paths>

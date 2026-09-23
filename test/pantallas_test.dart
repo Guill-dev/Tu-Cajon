@@ -2,11 +2,30 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tu_cajon/app.dart';
+import 'package:image/image.dart' as img;
+import 'package:tu_cajon/core/archivos/selector_archivos.dart';
+import 'package:tu_cajon/core/compartir/compartidor.dart';
+import 'package:tu_cajon/data/compartir/pdf_documento.dart';
 import 'package:tu_cajon/core/router/app_routes.dart';
 import 'package:tu_cajon/core/seguridad/llave_celular.dart';
+import 'package:tu_cajon/data/models/categoria.dart';
+import 'package:tu_cajon/data/models/documento.dart';
+import 'package:tu_cajon/data/models/perfil.dart';
 import 'package:tu_cajon/data/repositorio/memoria_repositorio.dart';
 import 'package:tu_cajon/features/cajon/cajon_shell.dart';
 import 'package:tu_cajon/shared/widgets/buttons.dart';
+
+import 'foto_prueba.dart';
+
+/// Deja correr trabajo real (abrir fotos, otro hilo) hasta que se cumpla
+/// [listo], o falla a los ~10 s.
+Future<void> esperarHasta(WidgetTester tester, bool Function() listo) async {
+  for (var i = 0; i < 50 && !listo(); i++) {
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 200)));
+    await tester.pump();
+  }
+  expect(listo(), isTrue, reason: 'no terminó a tiempo');
+}
 
 /// Abre una ruta en un teléfono de 390×844 (el tamaño del diseño).
 Future<void> abrir(WidgetTester tester, String ruta, {Object? args}) async {
@@ -33,6 +52,11 @@ void main() {
     // responde "no implementado" y Escanear pasa a su modo simulado.
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
       const MethodChannel('flutter.baseflow.com/permissions/methods'),
+      (_) async => throw MissingPluginException(),
+    );
+    // Tampoco hay lector de PDF nativo: responde "no implementado".
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+      const MethodChannel('tu_cajon/pdf'),
       (_) async => throw MissingPluginException(),
     );
   });
@@ -355,13 +379,279 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('Detalle abre y cierra el menú de compartir', (tester) async {
-    await abrir(tester, AppRoutes.detalle);
-    await tester.tap(find.text('Compartir de otra forma'));
-    await tester.pump(const Duration(milliseconds: 400));
-    await tester.tap(find.text('Imprimir'));
-    await tester.pump(const Duration(milliseconds: 400));
-    expect(find.text('Preparando para imprimir…'), findsOneWidget);
-    await tester.pump(const Duration(seconds: 3));
+  testWidgets('Escanear no tiene límite de páginas y cambia de formato', (tester) async {
+    await abrir(tester, AppRoutes.escanear);
+    for (var i = 0; i < 8; i++) {
+      await tester.tap(find.bySemanticsLabel('Tomar foto'));
+      await tester.pump(const Duration(milliseconds: 400));
+    }
+    expect(find.text('8 páginas'), findsOneWidget);
+    expect(find.text('Página 9'), findsOneWidget);
+
+    await tester.tap(find.text('Hoja'));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('Toca una miniatura para revisarla, toma otra página o toca Terminar'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  group('Subir un archivo', () {
+    Future<void> abrirAgregar(
+      WidgetTester tester, {
+      required MemoriaCajonRepositorio repo,
+      required SelectorSimulado selector,
+      CompartidorSimulado? compartidor,
+    }) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        TuCajonApp(
+          repo: repo,
+          llave: LlaveSimulada(),
+          compartidor: compartidor ?? CompartidorSimulado(),
+          selector: selector,
+          rutaInicial: AppRoutes.agregar,
+        ),
+      );
+      await tester.pump(const Duration(seconds: 1));
+    }
+
+    Future<void> tocar(WidgetTester tester, Finder f) async {
+      await tester.ensureVisible(f);
+      await tester.pump();
+      await tester.tap(f);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+    }
+
+    testWidgets('Subir un PDF: se guarda tal cual y se envía tal cual', (tester) async {
+      final pdf = await armarPdf([fotoPrueba], titulo: 'Certificado');
+      final repo = MemoriaCajonRepositorio();
+      final compartidor = CompartidorSimulado();
+      await abrirAgregar(
+        tester,
+        repo: repo,
+        compartidor: compartidor,
+        selector: SelectorSimulado(
+          pdf: PdfElegido(nombre: 'Certificado_EPS_2026.pdf', bytes: pdf),
+        ),
+      );
+
+      await tocar(tester, find.text('Subir un PDF'));
+      // Guardar propone el nombre del archivo, ya legible.
+      expect(find.text('Usamos el nombre del archivo'), findsOneWidget);
+      expect(find.text('Certificado EPS 2026'), findsOneWidget);
+      expect(find.text('Certificado_EPS_2026.pdf'), findsOneWidget);
+
+      await tocar(tester, find.text('Guardar en mi cajón'));
+      await tester.pump(const Duration(seconds: 1));
+      // (Los datos de ejemplo ya tienen otro certificado de la EPS.)
+      final doc = (await repo.buscar('EPS 2026')).firstWhere((d) => d.nombre == 'Certificado EPS 2026');
+      expect(await repo.leerPdf(doc), pdf);
+      expect(await repo.leerPaginas(doc), isEmpty);
+
+      // En el detalle (sin lector de PDF en las pruebas) se avisa, y al
+      // enviarlo va el mismo PDF, sin rehacerlo.
+      expect(find.textContaining('vista previa del PDF no está disponible'), findsOneWidget);
+      await tocar(tester, find.text('Enviar por WhatsApp'));
+      expect(compartidor.pdfsEnviados.single, pdf);
+      await tester.pump(const Duration(seconds: 3));
+    });
+
+    testWidgets('Un archivo que no es PDF no se acepta', (tester) async {
+      await abrirAgregar(
+        tester,
+        repo: MemoriaCajonRepositorio(),
+        selector: SelectorSimulado(
+          pdf: PdfElegido(nombre: 'foto.pdf', bytes: fotoPrueba),
+        ),
+      );
+      await tocar(tester, find.text('Subir un PDF'));
+      expect(find.textContaining('no es un PDF'), findsOneWidget);
+      expect(find.text('Guardar documento'), findsNothing);
+      await tester.pump(const Duration(seconds: 5));
+    });
+
+    testWidgets('Fotos de la galería: se revisan, se mejoran todas y se guardan', (tester) async {
+      Uint8List jpeg(int w, int h) => Uint8List.fromList(img.encodeJpg(img.Image(width: w, height: h)));
+      final repo = MemoriaCajonRepositorio();
+      await abrirAgregar(
+        tester,
+        repo: repo,
+        selector: SelectorSimulado(fotos: [jpeg(300, 400), jpeg(400, 300)]),
+      );
+
+      await tocar(tester, find.text('Fotos de la galería'));
+      expect(find.textContaining('Toca una página para recortarla'), findsOneWidget);
+      // Se preparan de verdad (se abren y se achican en otro hilo).
+      await esperarHasta(tester, () => find.text('Continuar con 2 páginas').evaluate().isNotEmpty);
+      expect(find.text('Página 1'), findsOneWidget);
+      expect(find.text('Página 2'), findsOneWidget);
+
+      // "Mejorar todas" con Documento.
+      await tocar(tester, find.text('Documento'));
+      await esperarHasta(tester, () => find.text('Filtro Documento').evaluate().length == 2);
+
+      await tocar(tester, find.text('Continuar con 2 páginas'));
+      expect(find.text('Ponle un nombre'), findsOneWidget);
+      await tester.enterText(find.byType(TextField), 'Recibo de luz');
+      await tester.pump();
+      await tocar(tester, find.text('Guardar en mi cajón'));
+      await tester.pump(const Duration(seconds: 1));
+
+      final doc = (await repo.buscar('Recibo de luz')).firstWhere((d) => d.nombre == 'Recibo de luz');
+      expect(await repo.leerPaginas(doc), hasLength(2));
+      expect(doc.paginas, 2);
+      await tester.pump(const Duration(seconds: 3));
+    });
+  });
+
+  group('Enviar como PDF', () {
+    /// Guarda un documento con 2 fotos y abre su detalle.
+    Future<void> abrirDetalleConFotos(WidgetTester tester, CompartidorSimulado compartidor) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final repo = MemoriaCajonRepositorio();
+      final id = await repo.guardarDocumento(
+        const NuevoDocumento(
+          perfilId: Perfil.idPropio,
+          nombre: 'Certificado laboral',
+          categoria: Categoria.estudios,
+          paginas: 2,
+        ),
+        paginas: [fotoPrueba, fotoPrueba],
+      );
+      await tester.pumpWidget(
+        TuCajonApp(
+          repo: repo,
+          llave: LlaveSimulada(),
+          compartidor: compartidor,
+          rutaInicial: AppRoutes.detalle,
+          argumentos: id,
+        ),
+      );
+      await tester.pump(const Duration(seconds: 1));
+    }
+
+    testWidgets('"Enviar por WhatsApp" arma el PDF con todas las fotos', (tester) async {
+      final compartidor = CompartidorSimulado();
+      await abrirDetalleConFotos(tester, compartidor);
+      await tester.tap(find.text('Enviar por WhatsApp'));
+      await tester.pump();
+      expect(find.text('Preparando el PDF…'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 1));
+      expect(compartidor.envios, [('Certificado_laboral.pdf', 2, true)]);
+      expect(find.text('Enviar por WhatsApp'), findsOneWidget); // el botón vuelve a estar listo
+    });
+
+    testWidgets('"Compartir de otra forma" abre el menú del celular', (tester) async {
+      final compartidor = CompartidorSimulado();
+      await abrirDetalleConFotos(tester, compartidor);
+      await tester.tap(find.text('Compartir de otra forma'));
+      await tester.pump(const Duration(seconds: 1));
+      expect(compartidor.envios, [('Certificado_laboral.pdf', 2, false)]);
+    });
+
+    testWidgets('Sin WhatsApp avisa y ofrece otra app', (tester) async {
+      final compartidor = CompartidorSimulado(resultado: ResultadoCompartir.sinWhatsApp);
+      await abrirDetalleConFotos(tester, compartidor);
+      await tester.tap(find.text('Enviar por WhatsApp'));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.textContaining('No encontramos WhatsApp'), findsOneWidget);
+      expect(compartidor.envios.map((e) => e.$3), [true, false]);
+      await tester.pump(const Duration(seconds: 3));
+    });
+
+    testWidgets('Un documento sin fotos no se envía', (tester) async {
+      final compartidor = CompartidorSimulado();
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      // Sin id: el detalle muestra el documento de ejemplo más reciente (sin foto).
+      await tester.pumpWidget(
+        TuCajonApp(
+          repo: MemoriaCajonRepositorio(),
+          llave: LlaveSimulada(),
+          compartidor: compartidor,
+          rutaInicial: AppRoutes.detalle,
+        ),
+      );
+      await tester.pump(const Duration(seconds: 1));
+      await tester.tap(find.text('Enviar por WhatsApp'));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.textContaining('no tiene fotos para enviar'), findsOneWidget);
+      expect(compartidor.envios, isEmpty);
+      await tester.pump(const Duration(seconds: 3));
+    });
+
+    testWidgets('Ir a WhatsApp no cierra el cajón si se vuelve pronto', (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      var ahora = DateTime(2026, 9, 23, 10);
+      final repo = MemoriaCajonRepositorio();
+      await repo.guardarDocumento(
+        const NuevoDocumento(
+          perfilId: Perfil.idPropio,
+          nombre: 'Certificado laboral',
+          categoria: Categoria.estudios,
+        ),
+        paginas: [fotoPrueba],
+      );
+      final compartidor = CompartidorSimulado();
+      await tester.pumpWidget(
+        TuCajonApp(
+          repo: repo,
+          llave: LlaveSimulada(),
+          compartidor: compartidor,
+          reloj: () => ahora,
+          rutaInicial: AppRoutes.desbloqueo,
+        ),
+      );
+      await tester.pump(const Duration(seconds: 4));
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.byType(CajonShell), findsOneWidget);
+
+      // Desde "Mi cajón", el botón verde de la tarjeta.
+      final boton = find.bySemanticsLabel('Enviar Certificado laboral por WhatsApp');
+      await tester.ensureVisible(boton);
+      await tester.pump();
+      await tester.tap(boton);
+      await tester.pump(const Duration(seconds: 1));
+      expect(compartidor.envios, [('Certificado_laboral.pdf', 1, true)]);
+
+      // Va a WhatsApp y vuelve al minuto: sigue abierto.
+      salirDeLaApp(tester);
+      ahora = ahora.add(const Duration(minutes: 1));
+      volverALaApp(tester);
+      await tester.pump();
+      expect(find.text('Hola de nuevo,'), findsNothing);
+      expect(compartidor.limpiezas, 1); // solo la de cuando abrió la app
+
+      // Otra vez, pero vuelve a los 3 minutos: se cierra y borra el PDF.
+      await tester.pump(const Duration(seconds: 3)); // se va el aviso
+      await tester.tap(boton);
+      await tester.pump(const Duration(seconds: 1));
+      salirDeLaApp(tester);
+      ahora = ahora.add(const Duration(minutes: 3));
+      volverALaApp(tester);
+      await tester.pump();
+      expect(find.text('Hola de nuevo,'), findsOneWidget);
+      expect(compartidor.limpiezas, 2);
+
+      // Una salida normal (sin compartir) sigue cerrando el cajón al momento.
+      await tester.pump(const Duration(seconds: 4));
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.text('Hola de nuevo,'), findsNothing);
+      salirDeLaApp(tester);
+      volverALaApp(tester);
+      await tester.pump();
+      expect(find.text('Hola de nuevo,'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 4));
+      await tester.pump(const Duration(seconds: 1));
+    });
   });
 }

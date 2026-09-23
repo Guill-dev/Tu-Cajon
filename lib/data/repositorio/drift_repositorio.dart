@@ -147,10 +147,18 @@ class DriftCajonRepositorio implements CajonRepositorio {
   }
 
   @override
-  Future<String> guardarDocumento(NuevoDocumento n, {List<Uint8List> paginas = const []}) async {
+  Future<String> guardarDocumento(
+    NuevoDocumento n, {
+    List<Uint8List> paginas = const [],
+    Uint8List? pdf,
+  }) async {
     final id = 'doc-${DateTime.now().microsecondsSinceEpoch}';
-    // Primero las fotos (cifradas); si la base falla después, se borran.
-    final archivo = paginas.isEmpty ? null : await archivos.guardarPaginas(paginas);
+    // Primero el archivo (cifrado); si la base falla después, se borra.
+    final archivo = pdf != null
+        ? await archivos.guardarPdf(pdf, paginas: n.paginas)
+        : paginas.isEmpty
+        ? null
+        : await archivos.guardarPaginas(paginas);
     try {
       await db
           .into(db.documentos)
@@ -178,6 +186,10 @@ class DriftCajonRepositorio implements CajonRepositorio {
   @override
   Future<List<Uint8List>> leerPaginas(Documento documento) async =>
       documento.archivo == null ? const [] : archivos.leerPaginas(documento.archivo!);
+
+  @override
+  Future<Uint8List?> leerPdf(Documento documento) async =>
+      documento.archivo == null ? null : archivos.leerPdf(documento.archivo!);
 
   @override
   Future<void> renombrarDocumento(String id, String nombre) => (db.update(

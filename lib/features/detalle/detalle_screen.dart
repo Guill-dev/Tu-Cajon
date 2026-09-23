@@ -5,7 +5,7 @@ import '../../core/icons/app_icons.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_decor.dart';
 import '../../core/theme/app_text.dart';
-import '../../core/formato.dart';
+import '../../core/pdf/lector_pdf.dart';
 import '../../core/router/app_routes.dart';
 import '../../data/repositorio/repositorio_scope.dart';
 import '../../data/models/documento.dart';
@@ -13,14 +13,17 @@ import '../../shared/illustrations/cedula_dibujo.dart';
 import '../../shared/widgets/buttons.dart';
 import '../../shared/widgets/common.dart';
 import '../../shared/widgets/dialogos.dart';
-import '../../shared/widgets/sheet.dart';
 import '../../shared/widgets/tc_icon.dart';
 import '../../shared/widgets/tc_tap.dart';
 import '../../shared/widgets/toast.dart';
+import '../compartir/enviar_documento.dart';
 import 'visor_paginas.dart';
 
 /// 6 · Documento: vista previa, datos, acciones y "Enviar por WhatsApp".
-/// "Compartir de otra forma" abre el menú de compartir del celular (simulado).
+///
+/// "Enviar por WhatsApp" arma un PDF con las fotos y abre WhatsApp directo
+/// para elegir el contacto. "Compartir de otra forma" abre el menú de
+/// compartir del celular con el mismo PDF (correo, Drive, imprimir…).
 class DetalleScreen extends StatefulWidget {
   const DetalleScreen({super.key, this.documentoId});
 
@@ -32,7 +35,15 @@ class DetalleScreen extends StatefulWidget {
 }
 
 class _DetalleScreenState extends State<DetalleScreen> with ToastMixin {
-  bool _hoja = false;
+  /// Mientras se arma el PDF: `true` si va a WhatsApp, `false` si al menú.
+  bool? _enviando;
+
+  Future<void> _enviar(Documento d, {required bool porWhatsApp}) async {
+    if (_enviando != null) return;
+    setState(() => _enviando = porWhatsApp);
+    await enviarDocumento(context, d, porWhatsApp: porWhatsApp, avisar: (m) => mounted ? showToast(m) : null);
+    if (mounted) setState(() => _enviando = null);
+  }
 
   /// Se vigila el documento: si se renombra, el título cambia al instante.
   late final Stream<Documento?> _doc = widget.documentoId != null
@@ -55,11 +66,6 @@ class _DetalleScreenState extends State<DetalleScreen> with ToastMixin {
     navigator.pop();
   }
 
-  void _toastYCerrar(String msg) {
-    setState(() => _hoja = false);
-    showToast(msg);
-  }
-
   @override
   Widget build(BuildContext context) {
     return StreamBuilder(
@@ -76,174 +82,87 @@ class _DetalleScreenState extends State<DetalleScreen> with ToastMixin {
   }
 
   Widget _pantalla(BuildContext context, Documento d) {
-    final destinos = <(String, String, String)>[
-      ('Correo', AppIcons.correo, 'Abriendo tu correo con el documento adjunto…'),
-      ('Mensajes', AppIcons.mensajes, 'Abriendo Mensajes…'),
-      ('Bluetooth', AppIcons.bluetooth, 'Buscando equipos cerca…'),
-      ('Archivos', AppIcons.carpeta, 'Guardando una copia en Archivos…'),
-      ('Imprimir', AppIcons.imprimir, 'Preparando para imprimir…'),
-      ('Copiar', AppIcons.copiar, 'Documento copiado'),
-      ('Cerca', AppIcons.cerca, 'Buscando celulares cerca…'),
-      ('Más apps', AppIcons.masApps, 'Mostrando más apps…'),
-    ];
-
-    return PopScope(
-      canPop: !_hoja,
-      onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) setState(() => _hoja = false);
-      },
-      child: Scaffold(
-        backgroundColor: AppColors.fondo,
-        body: Stack(
-          children: [
-            SafeArea(
-              bottom: false,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  BackHeader(title: d.nombre, backLabel: 'Volver a mi cajón'),
-                  Expanded(
-                    child: NoScrollbar(
-                      child: ListView(
-                        padding: const EdgeInsets.fromLTRB(20, 6, 20, 20),
-                        children: [
-                          _VistaPrevia(
-                            documento: d,
-                            onSinFoto: () => showToast('Este documento de ejemplo no tiene foto.'),
-                          ),
-                          const SizedBox(height: 14),
-                          _Datos(
-                            filas: [
-                              ('Carpeta', d.categoria.etiqueta),
-                              ('Guardado', d.guardadoTexto),
-                              ('Archivo', d.detalleCompleto),
-                              ('Vencimiento', d.vencimientoTexto),
-                            ],
-                          ),
-                          const SizedBox(height: 14),
-                          Row(
-                            spacing: 8,
-                            children: [
-                              Expanded(
-                                child: _Accion(
-                                  icono: AppIcons.lapiz,
-                                  etiqueta: 'Renombrar',
-                                  onTap: () => _renombrar(d),
-                                ),
+    return Scaffold(
+      backgroundColor: AppColors.fondo,
+      body: Stack(
+        children: [
+          SafeArea(
+            bottom: false,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                BackHeader(title: d.nombre, backLabel: 'Volver a mi cajón'),
+                Expanded(
+                  child: NoScrollbar(
+                    child: ListView(
+                      padding: const EdgeInsets.fromLTRB(20, 6, 20, 20),
+                      children: [
+                        _VistaPrevia(
+                          documento: d,
+                          onSinFoto: () => showToast('Este documento de ejemplo no tiene foto.'),
+                        ),
+                        const SizedBox(height: 14),
+                        _Datos(
+                          filas: [
+                            ('Carpeta', d.categoria.etiqueta),
+                            ('Guardado', d.guardadoTexto),
+                            ('Archivo', d.detalleCompleto),
+                            ('Vencimiento', d.vencimientoTexto),
+                          ],
+                        ),
+                        const SizedBox(height: 14),
+                        Row(
+                          spacing: 8,
+                          children: [
+                            Expanded(
+                              child: _Accion(
+                                icono: AppIcons.lapiz,
+                                etiqueta: 'Renombrar',
+                                onTap: () => _renombrar(d),
                               ),
-                              Expanded(
-                                child: _Accion(
-                                  icono: AppIcons.reemplazar,
-                                  etiqueta: 'Reemplazar',
-                                  onTap: () => Navigator.of(context).pushNamed(AppRoutes.agregar),
-                                ),
+                            ),
+                            Expanded(
+                              child: _Accion(
+                                icono: AppIcons.reemplazar,
+                                etiqueta: 'Reemplazar',
+                                onTap: () => Navigator.of(context).pushNamed(AppRoutes.agregar),
                               ),
-                              Expanded(
-                                child: _Accion(
-                                  icono: AppIcons.basura,
-                                  etiqueta: 'Eliminar',
-                                  color: AppColors.rojo,
-                                  onTap: () => _eliminar(d),
-                                ),
+                            ),
+                            Expanded(
+                              child: _Accion(
+                                icono: AppIcons.basura,
+                                etiqueta: 'Eliminar',
+                                color: AppColors.rojo,
+                                onTap: () => _eliminar(d),
                               ),
-                            ],
-                          ),
-                        ],
-                      ),
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
                   ),
-                  BottomActionBar(
-                    children: [
-                      PrimaryButton(
-                        label: 'Enviar por WhatsApp',
-                        icon: AppIcons.whatsapp,
-                        color: AppColors.verde,
-                        onTap: () =>
-                            showToast('Abriendo WhatsApp con “${d.nombre}”. Solo elige el contacto.'),
-                      ),
-                      OutlineButtonTc(
-                        label: 'Compartir de otra forma',
-                        icon: AppIcons.compartir,
-                        onTap: () => setState(() => _hoja = true),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            TcToast(message: toastMessage, bottom: 176),
-            TcSheet(
-              open: _hoja,
-              onDismiss: () => setState(() => _hoja = false),
-              dismissLabel: 'Cerrar menú de compartir',
-              child: Semantics(
-                scopesRoute: _hoja,
-                namesRoute: true,
-                label: 'Compartir con',
-                explicitChildNodes: true,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  mainAxisSize: MainAxisSize.min,
+                ),
+                BottomActionBar(
                   children: [
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        Container(
-                          width: 44,
-                          height: 52,
-                          decoration: BoxDecoration(
-                            color: AppColors.superficieSuave,
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          alignment: Alignment.center,
-                          child: Text('PDF', style: AppText.bold(11, color: AppColors.rojo)),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            spacing: 2,
-                            children: [
-                              Text(d.nombreArchivo, style: AppText.bold(16)),
-                              Text(
-                                '${Formato.tamano(d.tamanoBytes)} · Menú para compartir del celular',
-                                style: AppText.secondary(14),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
+                    PrimaryButton(
+                      label: 'Enviar por WhatsApp',
+                      icon: AppIcons.whatsapp,
+                      color: AppColors.verde,
+                      disabledLabel: _enviando == true ? 'Preparando el PDF…' : null,
+                      onTap: _enviando == null ? () => _enviar(d, porWhatsApp: true) : null,
                     ),
-                    const SizedBox(height: 20),
-                    GridView(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 4,
-                        mainAxisSpacing: 16,
-                        crossAxisSpacing: 4,
-                        // Ícono + hasta dos líneas de texto, según el tamaño de letra.
-                        mainAxisExtent: 70 + MediaQuery.textScalerOf(context).scale(13) * 1.2 * 2,
-                      ),
-                      children: [
-                        for (final t in destinos)
-                          _Destino(etiqueta: t.$1, icono: t.$2, onTap: () => _toastYCerrar(t.$3)),
-                      ],
-                    ),
-                    const SizedBox(height: 22),
-                    TcTap(
-                      onTap: () => setState(() => _hoja = false),
-                      color: AppColors.superficieSuave,
-                      radius: 16,
-                      height: 52,
-                      child: Center(child: Text('Cancelar', style: AppText.bold(17))),
+                    OutlineButtonTc(
+                      label: _enviando == false ? 'Preparando el PDF…' : 'Compartir de otra forma',
+                      icon: AppIcons.compartir,
+                      onTap: _enviando == null ? () => _enviar(d, porWhatsApp: false) : null,
                     ),
                   ],
                 ),
-              ),
+              ],
             ),
-          ],
-        ),
+          ),
+          TcToast(message: toastMessage, bottom: 176),
+        ],
       ),
     );
   }
@@ -265,6 +184,41 @@ class _VistaPreviaState extends State<_VistaPrevia> {
   Future<List<Uint8List>>? _paginas;
   String? _archivoCargado;
 
+  /// Si el documento es un PDF subido: sus bytes (para dibujar las páginas).
+  Uint8List? _pdf;
+  bool _abriendoPdf = false;
+
+  /// Fotos del documento, o la primera página del PDF subido dibujada.
+  Future<List<Uint8List>> _leer() async {
+    final repo = context.repo;
+    final fotos = await repo.leerPaginas(widget.documento);
+    if (fotos.isNotEmpty) return fotos;
+    final pdf = await repo.leerPdf(widget.documento);
+    if (pdf == null) return const [];
+    _pdf = pdf;
+    return LectorPdf.dibujar(pdf, ancho: 1000, hasta: 1);
+  }
+
+  /// "Ver completo" de un PDF: se dibujan todas sus páginas (hasta 60).
+  Future<void> _verPdfCompleto(Uint8List pdf) async {
+    if (_abriendoPdf) return;
+    setState(() => _abriendoPdf = true);
+    final navigator = Navigator.of(context);
+    try {
+      final paginas = await LectorPdf.dibujar(pdf, ancho: 1400, hasta: 60);
+      if (!mounted) return;
+      await navigator.push(
+        MaterialPageRoute(
+          builder: (_) => VisorPaginas(titulo: widget.documento.nombre, paginas: paginas),
+        ),
+      );
+    } on ErrorPdf catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.mensaje)));
+    } finally {
+      if (mounted) setState(() => _abriendoPdf = false);
+    }
+  }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -282,7 +236,8 @@ class _VistaPreviaState extends State<_VistaPrevia> {
     final archivo = widget.documento.archivo;
     if (archivo == _archivoCargado) return;
     _archivoCargado = archivo;
-    _paginas = archivo == null ? null : context.repo.leerPaginas(widget.documento);
+    _pdf = null;
+    _paginas = archivo == null ? null : _leer();
   }
 
   @override
@@ -295,7 +250,17 @@ class _VistaPreviaState extends State<_VistaPrevia> {
         if (_paginas == null) {
           contenido = const _HojaDibujada();
         } else if (snap.hasError) {
-          contenido = Center(child: Text('No se pudo abrir la foto.', style: AppText.secondary(15)));
+          final error = snap.error;
+          contenido = Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Text(
+                error is ErrorPdf ? error.mensaje : 'No se pudo abrir el documento.',
+                textAlign: TextAlign.center,
+                style: AppText.secondary(15, height: 1.4),
+              ),
+            ),
+          );
         } else if (!snap.hasData) {
           contenido = const Center(child: CircularProgressIndicator(color: AppColors.primario));
         } else if (paginas.isEmpty) {
@@ -309,9 +274,12 @@ class _VistaPreviaState extends State<_VistaPrevia> {
             ),
           );
         }
+        final pdf = _pdf;
         return _marco(
           contenido,
-          onVer: paginas.isEmpty
+          onVer: pdf != null
+              ? () => _verPdfCompleto(pdf)
+              : paginas.isEmpty
               ? widget.onSinFoto
               : () => Navigator.of(context).push(
                   MaterialPageRoute(
@@ -324,6 +292,7 @@ class _VistaPreviaState extends State<_VistaPrevia> {
   }
 
   Widget _marco(Widget contenido, {required VoidCallback onVer}) {
+    final abriendo = _abriendoPdf;
     return Container(
       height: 290,
       decoration: BoxDecoration(
@@ -347,8 +316,14 @@ class _VistaPreviaState extends State<_VistaPrevia> {
                 mainAxisSize: MainAxisSize.min,
                 spacing: 6,
                 children: [
-                  const TcIcon(AppIcons.ojo, size: 18, color: AppColors.texto),
-                  Text('Ver completo', style: AppText.bold(14)),
+                  if (abriendo)
+                    const SizedBox.square(
+                      dimension: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primario),
+                    )
+                  else
+                    const TcIcon(AppIcons.ojo, size: 18, color: AppColors.texto),
+                  Text(abriendo ? 'Abriendo…' : 'Ver completo', style: AppText.bold(14)),
                 ],
               ),
             ),
@@ -478,46 +453,6 @@ class _Accion extends StatelessWidget {
           TcIcon(icono, size: 20, color: color),
           Text(etiqueta, style: AppText.bold(14, color: color)),
         ],
-      ),
-    );
-  }
-}
-
-class _Destino extends StatelessWidget {
-  const _Destino({required this.etiqueta, required this.icono, required this.onTap});
-
-  final String etiqueta;
-  final String icono;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      button: true,
-      label: etiqueta,
-      excludeSemantics: true,
-      child: GestureDetector(
-        onTap: onTap,
-        behavior: HitTestBehavior.opaque,
-        child: Column(
-          spacing: 6,
-          children: [
-            Container(
-              width: 56,
-              height: 56,
-              decoration: const BoxDecoration(color: AppColors.superficieSuave, shape: BoxShape.circle),
-              alignment: Alignment.center,
-              child: TcIcon(icono, size: 24, color: AppColors.primario),
-            ),
-            Text(
-              etiqueta,
-              textAlign: TextAlign.center,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: AppText.body(13, height: 1.2),
-            ),
-          ],
-        ),
       ),
     );
   }

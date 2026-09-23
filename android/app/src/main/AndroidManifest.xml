@@ -10,6 +10,9 @@
          así que se quitan del permiso final de la app. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" tools:node="remove" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" tools:node="remove" />
+    <!-- La galería y el explorador de archivos son los del sistema: entregan solo lo que
+         la persona elige, sin permiso para leer todo el almacenamiento. -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" tools:node="remove" />
 
     <application
         android:label="Tu Cajón"
@@ -39,6 +42,16 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <!-- Entrega el PDF a WhatsApp al compartir (solo la carpeta temporal "compartidos"). -->
+        <provider
+            android:name=".ArchivosCompartidos"
+            android:authorities="${applicationId}.compartir"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/archivos_compartidos" />
+        </provider>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

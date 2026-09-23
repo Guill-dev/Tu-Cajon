@@ -41,6 +41,10 @@ lib/
 │   │   └── app_theme.dart     ThemeData de Material.
 │   ├── icons/app_icons.dart   Los íconos del diseño como trazos SVG (idénticos al prototipo).
 │   ├── router/app_routes.dart Nombres de las rutas y qué pantalla abre cada una.
+│   ├── seguridad/             Llave del celular (huella/PIN) y cerrojo al salir de la app.
+│   ├── compartir/             Arma el PDF y lo entrega a WhatsApp o al menú de compartir.
+│   ├── archivos/              Abre la galería y el explorador de archivos del sistema.
+│   ├── pdf/                   Lee los PDF subidos con el lector nativo (sin dejar copias).
 │   ├── formato.dart           Fechas en español, tamaños ("480 KB") y búsqueda sin tildes.
 │   └── motion.dart            Curva "suave" del diseño y detector de "reducir animaciones".
 │
@@ -66,7 +70,8 @@ lib/
     ├── detalle/               6 · Documento + enviar por WhatsApp
     ├── avisos/                7 · Avisos y sugerencias con IA
     ├── agregar/               8 · Agregar documento
-    ├── escanear/              9 · Escanear con la cámara
+    ├── escanear/              9 · Escanear con la cámara (formatos, recorte, filtros, revisar foto)
+    ├── paginas/               Tus páginas: fotos de la galería antes de guardarlas
     ├── guardar/               10 · Guardar (la IA llena los datos)
     ├── preguntar/             11 · Pregúntale a tu cajón (chat IA)
     ├── perfil/                12 · Nuevo perfil (Mamá, mascotas…)
@@ -118,6 +123,8 @@ Si una pieza sirve en dos pantallas, se mueve a `shared/`. Si solo sirve en una,
 | Mi cajón | "+ Nuevo" | Nuevo perfil |
 | Mi cajón | tarjeta de sugerencia | pestaña Avisos |
 | Barra inferior | + Agregar | Agregar → Escanear → Guardar → Documento |
+| Agregar | Subir un PDF | explorador de archivos → Guardar → Documento |
+| Agregar | Fotos de la galería | galería → Tus páginas → Guardar → Documento |
 
 "Mi cajón" y "Avisos" son dos pestañas del mismo contenedor (`features/cajon/cajon_shell.dart`).
 Por eso, al cambiar de pestaña, cada una conserva sus filtros y lo que ya descartaste.
@@ -131,7 +138,7 @@ Por eso, al cambiar de pestaña, cada una conserva sus filtros y lo que ya desca
 | El cajón se abre: el frente baja, el interior se despliega y suben los papeles | `shared/illustrations/cajon_animado.dart` |
 | El lápiz flota y saluda con el brazo | `shared/illustrations/lapiz_mascota.dart` |
 | Anillos que laten alrededor de la huella | `shared/widgets/pulse_ring.dart` |
-| Hojas inferiores que suben (llave, compartir) | `shared/widgets/sheet.dart` |
+| Hojas inferiores que suben (la llave) | `shared/widgets/sheet.dart` |
 | Avisos flotantes (toast) | `shared/widgets/toast.dart` |
 | Destello de la foto y miniaturas que aparecen | `features/escanear/escanear_screen.dart` |
 | Mensajes del chat que suben | `features/preguntar/preguntar_screen.dart` |
@@ -181,16 +188,35 @@ Pantalla ──context.repo──▶ CajonRepositorio (interfaz)
 
 | Hoy | Después |
 |---|---|
-| Las fotos se guardan cifradas, pero todavía no se arma un PDF | Unir las páginas en un PDF para compartir |
-| "Subir un archivo" va directo a Guardar | `file_picker` |
 | La IA de "Guardar" siempre propone "Cédula de ciudadanía" | Reconocimiento de texto en el celular (OCR) que llene `textoExtraido` |
 | El chat usa búsqueda + reglas (`preguntar/respuestas_demo.dart`) | Modelo de IA local sobre tus documentos |
 | "Recordarme el lunes" solo muestra un aviso | `flutter_local_notifications` |
-| WhatsApp y Compartir muestran un aviso | `share_plus` |
 | Ajustes y "Ver completo" no hacen nada | Pendientes |
 
-Ya funcionan de verdad: la llave del cajón (huella, rostro, PIN o patrón del celular, con `local_auth`), que se vuelve a pedir cada vez que se sale de la app (`core/seguridad/cerrojo.dart`), la cámara, guardar documentos, renombrar, eliminar, crear perfiles, buscar,
+Ya funcionan de verdad: la llave del cajón (huella, rostro, PIN o patrón del celular, con `local_auth`), que se vuelve a pedir cada vez que se sale de la app (`core/seguridad/cerrojo.dart`), la cámara (con
+formatos de marco, páginas ilimitadas, revisar/recortar/eliminar cada foto y filtros de escáner, en
+`features/escanear/`), subir un PDF (se guarda tal cual, cifrado; sus páginas se dibujan con el lector nativo de Android sin dejar copias, `core/pdf/`) o fotos de la galería con las mismas herramientas de la cámara (`features/paginas/`), enviar por WhatsApp o compartir como PDF (`core/compartir/`, el PDF temporal se borra solo), guardar documentos, renombrar, eliminar, crear perfiles, buscar,
 descartar sugerencias, y recordar el nombre y la llave entre sesiones.
+
+---
+
+## La "IA" dentro de la app
+
+Hoy **Tu Cajón no usa ningún modelo de inteligencia artificial** y no envía datos a servicios de
+IA: todo funciona dentro del celular. Algunas partes llevan la etiqueta "IA" en la interfaz
+porque así quedaron en el diseño, pero por dentro son reglas o están simuladas:
+
+| En la app | Cómo funciona de verdad |
+|---|---|
+| "Sugerencia de la IA" (Mi cajón y Avisos) | Reglas fijas sobre fechas y tipos de documento (`features/avisos/sugerencias.dart`) |
+| "Pregúntale a tu cajón" | Búsqueda en la base de datos + respuestas por reglas (`features/preguntar/respuestas_demo.dart`) |
+| "La IA llenó los datos" al guardar | Simulado: siempre propone los mismos datos |
+| Filtros de escáner (Documento, B/N) | Procesamiento de imagen clásico: iluminación pareja, contraste y nitidez, con el paquete `image` (`features/escanear/filtros.dart`) |
+| Recorte al marco de la cámara | Geometría y el paquete `image` (`features/escanear/recorte.dart`) |
+
+Si más adelante se agrega IA de verdad (por ejemplo, leer el texto de los documentos o
+responder preguntas), hay que anotarlo aquí: qué modelo, si corre en el celular o en internet,
+y qué datos usa.
 
 ---
 

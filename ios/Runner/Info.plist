@@ -4,6 +4,8 @@
 <dict>
 	<key>NSCameraUsageDescription</key>
 	<string>Tu Cajón usa la cámara solo para fotografiar tus documentos. Las fotos se guardan cifradas en este celular.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Tu Cajón abre tu galería solo para que elijas las fotos de tus documentos. Se guardan cifradas en este celular.</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Tu Cajón usa Face ID para abrir tu cajón con llave.</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>

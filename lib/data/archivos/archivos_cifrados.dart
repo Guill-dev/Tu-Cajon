@@ -11,7 +11,8 @@ import 'almacen_archivos.dart';
 /// AES-256-GCM dentro de la carpeta privada de la app:
 ///
 /// ```
-/// <soporte de la app>/documentos/<id>/pagina_1.bin
+/// <soporte de la app>/documentos/<id>/pagina_1.bin     (fotos)
+/// <soporte de la app>/documentos/<id>/documento_pdf.bin (PDF subido)
 /// ```
 ///
 /// Formato de cada archivo: `nonce (12 bytes) + texto cifrado + MAC (16 bytes)`.
@@ -62,27 +63,52 @@ class ArchivosCifrados implements AlmacenArchivos {
     }
   }
 
+  static const _archivoPdf = 'documento_pdf.bin';
+  static final _patronPagina = RegExp(r'pagina_(\d+)\.bin$');
+
+  @override
+  Future<ArchivoGuardado> guardarPdf(Uint8List pdf, {required int paginas}) async {
+    final ruta = p.join(_raiz, _nuevoId());
+    final carpeta = _carpeta(ruta);
+    await carpeta.create(recursive: true);
+    try {
+      final caja = await _aes.encrypt(pdf, secretKey: _clave);
+      await File(p.join(carpeta.path, _archivoPdf)).writeAsBytes(caja.concatenation(), flush: true);
+      return ArchivoGuardado(ruta: ruta, bytes: pdf.length, paginas: paginas);
+    } catch (_) {
+      await carpeta.delete(recursive: true);
+      rethrow;
+    }
+  }
+
+  @override
+  Future<Uint8List?> leerPdf(String ruta) async {
+    final archivo = File(p.join(_carpeta(ruta).path, _archivoPdf));
+    if (!await archivo.exists()) return null;
+    return _descifrar(archivo);
+  }
+
   @override
   Future<List<Uint8List>> leerPaginas(String ruta) async {
     final carpeta = _carpeta(ruta);
     if (!await carpeta.exists()) return const [];
+    // Solo las páginas (no el PDF subido, si lo hubiera).
     final archivos =
-        await carpeta.list().where((e) => e is File && e.path.endsWith('.bin')).cast<File>().toList()
+        await carpeta.list().where((e) => e is File && _patronPagina.hasMatch(e.path)).cast<File>().toList()
           ..sort((a, b) => _numero(a.path).compareTo(_numero(b.path)));
-    final paginas = <Uint8List>[];
-    for (final f in archivos) {
-      final caja = SecretBox.fromConcatenation(
-        await f.readAsBytes(),
-        nonceLength: _aes.nonceLength,
-        macLength: _aes.macAlgorithm.macLength,
-      );
-      paginas.add(Uint8List.fromList(await _aes.decrypt(caja, secretKey: _clave)));
-    }
-    return paginas;
+    return [for (final f in archivos) await _descifrar(f)];
   }
 
-  static int _numero(String ruta) =>
-      int.tryParse(RegExp(r'pagina_(\d+)\.bin$').firstMatch(ruta)?.group(1) ?? '') ?? 0;
+  Future<Uint8List> _descifrar(File archivo) async {
+    final caja = SecretBox.fromConcatenation(
+      await archivo.readAsBytes(),
+      nonceLength: _aes.nonceLength,
+      macLength: _aes.macAlgorithm.macLength,
+    );
+    return Uint8List.fromList(await _aes.decrypt(caja, secretKey: _clave));
+  }
+
+  static int _numero(String ruta) => int.tryParse(_patronPagina.firstMatch(ruta)?.group(1) ?? '') ?? 0;
 
   @override
   Future<void> borrar(String ruta) async {

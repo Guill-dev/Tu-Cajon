@@ -17,26 +17,89 @@ import '../../shared/widgets/dashed_border.dart';
 import '../../shared/widgets/tc_icon.dart';
 import '../../shared/widgets/tc_tap.dart';
 import '../../shared/widgets/text_field.dart';
+import '../paginas/paginas_screen.dart';
 
-/// 10 · Guardar: la IA "reconoce" el documento y llena los datos; el usuario
-/// revisa nombre, carpeta y si se vence.
+/// De dónde vienen las fotos (a dónde lleva "Otra página").
+enum OrigenFotos { camara, galeria }
+
+/// Fotos elegidas en la galería (y ya revisadas), listas para guardar.
+class FotosDeGaleria {
+  const FotosDeGaleria(this.fotos);
+
+  final List<Uint8List> fotos;
+}
+
+/// Un PDF subido desde el explorador de archivos, listo para guardar.
+class PdfSubido {
+  const PdfSubido({
+    required this.bytes,
+    required this.paginas,
+    required this.nombreArchivo,
+    this.portada,
+    this.aviso,
+  });
+
+  final Uint8List bytes;
+  final int paginas;
+
+  /// "Certificado_EPS_2026.pdf".
+  final String nombreArchivo;
+
+  /// La primera página dibujada (JPEG), si se pudo.
+  final Uint8List? portada;
+
+  /// Algo que decirle a la persona (p. ej. que el PDF tiene contraseña).
+  final String? aviso;
+
+  /// "Certificado_EPS_2026.pdf" → "Certificado EPS 2026".
+  String get nombreSugerido {
+    final sinExtension = nombreArchivo.replaceFirst(RegExp(r'\.pdf$', caseSensitive: false), '');
+    final limpio = sinExtension.replaceAll(RegExp(r'[_\-.]+'), ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (limpio.isEmpty) return '';
+    return limpio[0].toUpperCase() + limpio.substring(1);
+  }
+}
+
+/// 10 · Guardar: el usuario revisa nombre, carpeta y si se vence.
+///
+/// Llega de tres lados: la cámara (la "IA" propone una cédula), la galería
+/// (fotos ya revisadas) o un PDF subido (se propone el nombre del archivo).
 class GuardarScreen extends StatefulWidget {
-  const GuardarScreen({super.key, this.paginas = 2, this.fotos = const []});
+  const GuardarScreen({
+    super.key,
+    this.paginas = 2,
+    this.fotos = const [],
+    this.origen = OrigenFotos.camara,
+    this.pdf,
+  });
 
   /// Páginas que se escanearon (2 = frente y reverso).
   final int paginas;
 
-  /// Las fotos reales de la cámara (JPEG). Vacío en modo simulado.
+  /// Las fotos reales (JPEG) de la cámara o la galería. Vacío en modo simulado.
   final List<Uint8List> fotos;
+  final OrigenFotos origen;
+
+  /// Si se subió un PDF: se guarda tal cual, en vez de fotos.
+  final PdfSubido? pdf;
 
   @override
   State<GuardarScreen> createState() => _GuardarScreenState();
 }
 
 class _GuardarScreenState extends State<GuardarScreen> {
-  // La "IA" todavía no lee el papel: propone una cédula, como en el diseño.
-  final _nombre = TextEditingController(text: 'Cédula de ciudadanía');
-  Categoria _categoria = Categoria.identidad;
+  // Cámara: la "IA" todavía no lee el papel y propone una cédula, como en el
+  // diseño. PDF: el nombre del archivo. Galería: lo escribe la persona.
+  late final _nombre = TextEditingController(
+    text: widget.pdf != null
+        ? widget.pdf!.nombreSugerido
+        : widget.origen == OrigenFotos.galeria
+        ? ''
+        : 'Cédula de ciudadanía',
+  );
+  late Categoria _categoria = widget.pdf == null && widget.origen == OrigenFotos.camara
+      ? Categoria.identidad
+      : Categoria.otro;
   String _perfilId = Perfil.idPropio;
   bool _seVence = false;
   bool _guardando = false;
@@ -75,19 +138,21 @@ class _GuardarScreenState extends State<GuardarScreen> {
     final navigator = Navigator.of(context);
     final messenger = ScaffoldMessenger.of(context);
     final String id;
+    final pdf = widget.pdf;
     try {
       id = await context.repo.guardarDocumento(
         NuevoDocumento(
           perfilId: _perfilId,
           nombre: _nombre.text,
           categoria: _categoria,
-          paginas: widget.paginas,
+          paginas: pdf?.paginas ?? widget.paginas,
           // Sin fotos reales (modo simulado): tamaño aproximado de un escaneo.
-          tamanoBytes: widget.paginas * 240 * 1024,
+          tamanoBytes: pdf?.bytes.length ?? widget.paginas * 240 * 1024,
           venceEn: _seVence ? _fecha : null,
         ),
-        // Con fotos reales, se guardan cifradas y el tamaño sale de ellas.
+        // Con fotos reales o un PDF, se guardan cifrados y el tamaño sale de ellos.
         paginas: widget.fotos,
+        pdf: pdf?.bytes,
       );
     } catch (e) {
       if (mounted) setState(() => _guardando = false);
@@ -100,6 +165,21 @@ class _GuardarScreenState extends State<GuardarScreen> {
       (r) => r.settings.name == AppRoutes.cajon,
       arguments: id,
     );
+  }
+
+  bool get _desdeCamara => widget.pdf == null && widget.origen == OrigenFotos.camara;
+
+  /// El recuadro de arriba: título y texto según de dónde viene el documento.
+  (String, String) get _aviso {
+    if (widget.pdf case final pdf?) {
+      return pdf.aviso != null
+          ? ('Revisa este PDF', pdf.aviso!)
+          : ('Usamos el nombre del archivo', 'Revisa que esté bien y elige la carpeta.');
+    }
+    if (widget.origen == OrigenFotos.galeria) {
+      return ('Ponle un nombre', 'Así lo encuentras rápido cuando lo busques.');
+    }
+    return ('Parece una cédula de ciudadanía', 'La IA llenó los datos por ti. Revisa que estén bien.');
   }
 
   @override
@@ -117,14 +197,22 @@ class _GuardarScreenState extends State<GuardarScreen> {
                 child: ListView(
                   padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
                   children: [
-                    _Paginas(
-                      paginas: widget.paginas,
-                      fotos: widget.fotos,
-                      // Vuelve a la cámara sin perder las fotos ya tomadas.
-                      onOtra: () =>
-                          Navigator.of(context)
-                              .pushReplacementNamed(AppRoutes.escanear, arguments: widget.fotos),
-                    ),
+                    if (widget.pdf case final pdf?)
+                      _PdfSubido(pdf: pdf)
+                    else
+                      _Paginas(
+                        paginas: widget.paginas,
+                        fotos: widget.fotos,
+                        // Vuelve a la cámara o a las páginas de la galería sin
+                        // perder las fotos que ya hay.
+                        onOtra: () => widget.origen == OrigenFotos.galeria
+                            ? Navigator.of(context).pushReplacementNamed(
+                                AppRoutes.paginas,
+                                arguments: EntradaPaginas(listas: widget.fotos),
+                              )
+                            : Navigator.of(context)
+                                  .pushReplacementNamed(AppRoutes.escanear, arguments: widget.fotos),
+                      ),
                     const SizedBox(height: 18),
                     Container(
                       padding: const EdgeInsets.all(16),
@@ -135,9 +223,13 @@ class _GuardarScreenState extends State<GuardarScreen> {
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Padding(
-                            padding: EdgeInsets.only(top: 1),
-                            child: TcIcon(AppIcons.destello, size: 22, color: AppColors.primario),
+                          Padding(
+                            padding: const EdgeInsets.only(top: 1),
+                            child: TcIcon(
+                              _desdeCamara ? AppIcons.destello : AppIcons.lapiz,
+                              size: 22,
+                              color: AppColors.primario,
+                            ),
                           ),
                           const SizedBox(width: 12),
                           Expanded(
@@ -145,12 +237,9 @@ class _GuardarScreenState extends State<GuardarScreen> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               spacing: 2,
                               children: [
+                                Text(_aviso.$1, style: AppText.bold(16, color: AppColors.primario)),
                                 Text(
-                                  'Parece una cédula de ciudadanía',
-                                  style: AppText.bold(16, color: AppColors.primario),
-                                ),
-                                Text(
-                                  'La IA llenó los datos por ti. Revisa que estén bien.',
+                                  _aviso.$2,
                                   style: AppText.body(14, color: AppColors.primarioTextoSuave, height: 1.4),
                                 ),
                               ],
@@ -240,14 +329,21 @@ class _Paginas extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Container(
-            width: 78,
-            height: foto == null ? 50 : 78,
-            clipBehavior: Clip.antiAlias,
-            decoration: BoxDecoration(color: AppColors.idFondo, borderRadius: BorderRadius.circular(8)),
-            child: foto == null ? null : Image.memory(foto, fit: BoxFit.cover, cacheWidth: 200),
+          // La foto toma el alto que sobre; con letra grande se achica.
+          Flexible(
+            child: Container(
+              width: 78,
+              height: foto == null ? 50 : 78,
+              clipBehavior: Clip.antiAlias,
+              decoration: BoxDecoration(color: AppColors.idFondo, borderRadius: BorderRadius.circular(8)),
+              child: foto == null ? null : Image.memory(foto, fit: BoxFit.cover, cacheWidth: 200),
+            ),
           ),
-          Text(etiqueta, style: AppText.bold(13, color: AppColors.textoSecundario)),
+          const SizedBox(height: 4),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(etiqueta, maxLines: 1, style: AppText.bold(13, color: AppColors.textoSecundario)),
+          ),
         ],
       ),
     );
@@ -284,6 +380,58 @@ class _Paginas extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// El PDF subido: su primera página (o la etiqueta "PDF") y cuántas páginas tiene.
+class _PdfSubido extends StatelessWidget {
+  const _PdfSubido({required this.pdf});
+
+  final PdfSubido pdf;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: AppDecor.tarjeta(radius: 20),
+      child: Row(
+        children: [
+          Container(
+            width: 72,
+            height: 94,
+            clipBehavior: Clip.antiAlias,
+            decoration: BoxDecoration(
+              color: AppColors.superficieSuave,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: AppColors.borde),
+            ),
+            alignment: Alignment.center,
+            child: pdf.portada != null
+                ? Image.memory(pdf.portada!, fit: BoxFit.cover, cacheWidth: 220)
+                : Text('PDF', style: AppText.bold(14, color: AppColors.rojo)),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              spacing: 4,
+              children: [
+                Text(
+                  pdf.nombreArchivo,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppText.bold(16),
+                ),
+                Text(
+                  'PDF · ${pdf.paginas == 1 ? '1 página' : '${pdf.paginas} páginas'} · ${Formato.tamano(pdf.bytes.length)}',
+                  style: AppText.secondary(14),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
