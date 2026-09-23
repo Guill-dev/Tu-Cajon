@@ -1,0 +1,16 @@
+# Finales de línea normalizados (LF en el repositorio), sin importar si se
+# trabaja en Windows, Mac o Linux.
+* text=auto
+
+# Scripts de Windows siempre con CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binarios: no tocar.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.ttf binary
+*.otf binary
+*.jar binary
