@@ -108,7 +108,7 @@ class _BienvenidaScreenState extends State<BienvenidaScreen> {
               ),
               const SizedBox(height: 12),
               const PrivacyNote(
-                'Sin correo, sin contraseña, sin registro. Solo tu nombre, y se queda en tu celular.',
+                'Sin registro. Solo tu nombre, y se queda en tu celular.',
                 center: false,
                 size: 15,
               ),
