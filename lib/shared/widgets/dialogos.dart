@@ -10,7 +10,7 @@ Future<String?> pedirNombre(BuildContext context, {required String actual}) {
   final controller = TextEditingController(text: actual);
   return showDialog<String>(
     context: context,
-    builder: (context) => _DialogoTc(
+    builder: (context) => DialogoTc(
       titulo: 'Renombrar',
       contenido: TcTextField(
         label: 'Nombre del documento',
@@ -32,7 +32,7 @@ Future<String?> pedirNombre(BuildContext context, {required String actual}) {
 Future<bool> confirmarEliminar(BuildContext context, String nombre) async {
   final ok = await showDialog<bool>(
     context: context,
-    builder: (context) => _DialogoTc(
+    builder: (context) => DialogoTc(
       titulo: '¿Eliminar “$nombre”?',
       contenido: Text(
         'Se borra de este celular y no se puede recuperar.',
@@ -40,15 +40,57 @@ Future<bool> confirmarEliminar(BuildContext context, String nombre) async {
       ),
       acciones: [
         SmallButton(label: 'Cancelar', filled: false, onTap: () => Navigator.of(context).pop(false)),
-        _BotonPeligro(onTap: () => Navigator.of(context).pop(true)),
+        _BotonPeligro(etiqueta: 'Eliminar', onTap: () => Navigator.of(context).pop(true)),
       ],
     ),
   );
   return ok ?? false;
 }
 
-class _DialogoTc extends StatelessWidget {
-  const _DialogoTc({required this.titulo, required this.contenido, required this.acciones});
+/// Salir con cambios sin guardar. Devuelve `true` si el usuario quiere salir.
+Future<bool> confirmarSalirSinGuardar(BuildContext context) async {
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (context) => DialogoTc(
+      titulo: '¿Salir sin guardar?',
+      contenido: Text(
+        'Los cambios que hiciste en las páginas se pierden. El documento queda como estaba.',
+        style: AppText.secondary(15, height: 1.4),
+      ),
+      acciones: [
+        SmallButton(label: 'Seguir editando', filled: false, onTap: () => Navigator.of(context).pop(false)),
+        _BotonPeligro(etiqueta: 'Salir', onTap: () => Navigator.of(context).pop(true)),
+      ],
+    ),
+  );
+  return ok ?? false;
+}
+
+/// Pregunta antes de algo que cuesta deshacer. Devuelve `true` si acepta.
+Future<bool> confirmar(
+  BuildContext context, {
+  required String titulo,
+  required String texto,
+  required String accion,
+  String cancelar = 'Cancelar',
+}) async {
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (context) => DialogoTc(
+      titulo: titulo,
+      contenido: Text(texto, style: AppText.secondary(15, height: 1.4)),
+      acciones: [
+        SmallButton(label: cancelar, filled: false, onTap: () => Navigator.of(context).pop(false)),
+        _BotonPeligro(etiqueta: accion, onTap: () => Navigator.of(context).pop(true)),
+      ],
+    ),
+  );
+  return ok ?? false;
+}
+
+/// El diálogo de la app: título grande, contenido y botones abajo a la derecha.
+class DialogoTc extends StatelessWidget {
+  const DialogoTc({super.key, required this.titulo, required this.contenido, required this.acciones});
 
   final String titulo;
   final Widget contenido;
@@ -79,8 +121,9 @@ class _DialogoTc extends StatelessWidget {
 }
 
 class _BotonPeligro extends StatelessWidget {
-  const _BotonPeligro({required this.onTap});
+  const _BotonPeligro({required this.etiqueta, required this.onTap});
 
+  final String etiqueta;
   final VoidCallback onTap;
 
   @override
@@ -97,7 +140,7 @@ class _BotonPeligro extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
             child: Center(
               widthFactor: 1,
-              child: Text('Eliminar', style: AppText.bold(14, color: Colors.white)),
+              child: Text(etiqueta, style: AppText.bold(14, color: Colors.white)),
             ),
           ),
         ),

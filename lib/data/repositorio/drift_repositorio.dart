@@ -1,4 +1,4 @@
-﻿import 'dart:ui';
+import 'dart:ui';
 
 import 'package:drift/drift.dart';
 
@@ -6,6 +6,7 @@ import '../../core/formato.dart';
 import '../archivos/almacen_archivos.dart';
 import '../datos_ejemplo.dart';
 import '../db/base_datos.dart';
+import '../models/contenido_cajon.dart';
 import '../models/documento.dart';
 import '../models/perfil.dart';
 import 'cajon_repositorio.dart';
@@ -54,17 +55,16 @@ class DriftCajonRepositorio implements CajonRepositorio {
 
   // ── Perfiles ───────────────────────────────────────────────────────────
 
+  Selectable<Perfil> _perfilesEnOrden() => db
+      .customSelect(
+        'SELECT p.*, (SELECT COUNT(*) FROM documentos d WHERE d.perfil_id = p.id) AS total '
+        'FROM perfiles p ORDER BY p.es_propio DESC, p.creado_en, p.rowid',
+        readsFrom: {db.perfiles, db.documentos},
+      )
+      .map((f) => _aPerfil(db.perfiles.map(f.data), f.read<int>('total')));
+
   @override
-  Stream<List<Perfil>> vigilarPerfiles() {
-    return db
-        .customSelect(
-          'SELECT p.*, (SELECT COUNT(*) FROM documentos d WHERE d.perfil_id = p.id) AS total '
-          'FROM perfiles p ORDER BY p.es_propio DESC, p.creado_en, p.rowid',
-          readsFrom: {db.perfiles, db.documentos},
-        )
-        .watch()
-        .map((filas) => [for (final f in filas) _aPerfil(db.perfiles.map(f.data), f.read<int>('total'))]);
-  }
+  Stream<List<Perfil>> vigilarPerfiles() => _perfilesEnOrden().watch();
 
   @override
   Future<Perfil> crearPerfil({required String nombre, required TipoPerfil tipo, required Color color}) async {
@@ -192,6 +192,45 @@ class DriftCajonRepositorio implements CajonRepositorio {
       documento.archivo == null ? null : archivos.leerPdf(documento.archivo!);
 
   @override
+  Future<void> actualizarDocumento(
+    String id,
+    NuevoDocumento n, {
+    List<Uint8List> paginas = const [],
+    Uint8List? pdf,
+  }) async {
+    final anterior = await (db.select(db.documentos)..where((d) => d.id.equals(id))).getSingleOrNull();
+    if (anterior == null) throw StateError('No existe el documento $id');
+    // Primero los archivos nuevos (cifrados); si la base falla, se borran y
+    // el documento queda como estaba.
+    final archivo = pdf != null
+        ? await archivos.guardarPdf(pdf, paginas: n.paginas)
+        : paginas.isEmpty
+        ? null
+        : await archivos.guardarPaginas(paginas);
+    try {
+      await (db.update(db.documentos)..where((d) => d.id.equals(id))).write(
+        DocumentosCompanion(
+          perfilId: Value(n.perfilId),
+          nombre: Value(n.nombre.trim()),
+          categoria: Value(n.categoria),
+          venceEn: Value(n.venceEn),
+          // Con archivos nuevos: sus datos, y cuenta como guardado hoy.
+          paginas: archivo == null ? const Value.absent() : Value(archivo.paginas),
+          tamanoBytes: archivo == null ? const Value.absent() : Value(archivo.bytes),
+          archivo: archivo == null ? const Value.absent() : Value(archivo.ruta),
+          guardadoEn: archivo == null ? const Value.absent() : Value(DateTime.now()),
+          textoExtraido: archivo == null ? const Value.absent() : const Value(''),
+        ),
+      );
+    } catch (_) {
+      if (archivo != null) await archivos.borrar(archivo.ruta);
+      rethrow;
+    }
+    // Ya quedaron los nuevos: se borran las páginas de antes.
+    if (archivo != null && anterior.archivo != null) await archivos.borrar(anterior.archivo!);
+  }
+
+  @override
   Future<void> renombrarDocumento(String id, String nombre) => (db.update(
     db.documentos,
   )..where((d) => d.id.equals(id))).write(DocumentosCompanion(nombre: Value(nombre.trim())));
@@ -214,6 +253,106 @@ class DriftCajonRepositorio implements CajonRepositorio {
   Future<void> descartarSugerencia(String clave) => db
       .into(db.sugerenciasDescartadas)
       .insert(SugerenciasDescartadasCompanion.insert(clave: clave), mode: InsertMode.insertOrIgnore);
+
+  // ── Copia de seguridad ─────────────────────────────────────────────────
+
+  @override
+  Future<ContenidoCajon> leerContenido() async {
+    final documentos = await (db.select(
+      db.documentos,
+    )..orderBy([(d) => OrderingTerm.asc(d.guardadoEn)])).get();
+    final descartadas = await db.select(db.sugerenciasDescartadas).get();
+    return ContenidoCajon(
+      nombre: await leerNombre(),
+      perfiles: await _perfilesEnOrden().get(),
+      documentos: documentos.map(_aDocumento).toList(),
+      descartadas: {for (final f in descartadas) f.clave},
+    );
+  }
+
+  @override
+  Future<void> restaurar(
+    ContenidoCajon c, {
+    required Future<ArchivosDocumento> Function(Documento documento) archivosDe,
+  }) async {
+    final antes = await db.select(db.documentos).map((f) => f.archivo).get();
+    // 1. Los archivos de la copia, cifrados como todos los demás.
+    final nuevos = <String, ArchivoGuardado>{};
+    try {
+      for (final d in c.documentos) {
+        if (d.archivo == null) continue;
+        final a = await archivosDe(d);
+        final guardado = a.pdf != null
+            ? await archivos.guardarPdf(a.pdf!, paginas: d.paginas)
+            : a.paginas.isEmpty
+            ? null
+            : await archivos.guardarPaginas(a.paginas);
+        if (guardado != null) nuevos[d.id] = guardado;
+      }
+      // 2. La base cambia en una sola transacción: todo o nada.
+      await db.transaction(() async {
+        await db.delete(db.documentos).go();
+        await db.delete(db.perfiles).go();
+        await db.delete(db.sugerenciasDescartadas).go();
+        for (final p in c.perfiles) {
+          await db
+              .into(db.perfiles)
+              .insert(
+                PerfilesCompanion.insert(
+                  id: p.id,
+                  nombre: p.nombre,
+                  inicial: p.inicial,
+                  color: p.color.toARGB32(),
+                  tipo: p.tipo,
+                  esPropio: Value(p.esPropio),
+                ),
+              );
+        }
+        for (final d in c.documentos) {
+          await db
+              .into(db.documentos)
+              .insert(
+                DocumentosCompanion.insert(
+                  id: d.id,
+                  perfilId: d.perfilId,
+                  nombre: d.nombre,
+                  categoria: d.categoria,
+                  paginas: Value(d.paginas),
+                  tamanoBytes: Value(d.tamanoBytes),
+                  guardadoEn: d.guardadoEn,
+                  venceEn: Value(d.venceEn),
+                  archivo: Value(nuevos[d.id]?.ruta),
+                  textoExtraido: Value(d.textoExtraido),
+                ),
+              );
+        }
+        for (final clave in c.descartadas) {
+          await db
+              .into(db.sugerenciasDescartadas)
+              .insert(SugerenciasDescartadasCompanion.insert(clave: clave));
+        }
+        await _guardarAjuste(_claveNombre, c.nombre);
+      });
+    } catch (_) {
+      for (final a in nuevos.values) {
+        await archivos.borrar(a.ruta);
+      }
+      rethrow;
+    }
+    // 3. Los archivos de antes ya no se usan.
+    for (final ruta in antes.nonNulls) {
+      await archivos.borrar(ruta);
+    }
+  }
+
+  @override
+  Future<String?> leerAjuste(String clave) => _ajuste(clave).getSingleOrNull();
+
+  @override
+  Future<void> guardarAjuste(String clave, String? valor) async {
+    if (valor != null) return _guardarAjuste(clave, valor);
+    await (db.delete(db.ajustes)..where((a) => a.clave.equals(clave))).go();
+  }
 
   // ── Desarrollo ─────────────────────────────────────────────────────────
 

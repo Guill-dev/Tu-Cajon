@@ -8,6 +8,7 @@ import '../../core/seguridad/cerrojo.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_decor.dart';
 import '../../core/theme/app_text.dart';
+import '../../data/models/documento.dart';
 import '../../shared/illustrations/lapiz_mascota.dart';
 import '../../shared/widgets/buttons.dart';
 import '../../shared/widgets/common.dart';
@@ -19,8 +20,13 @@ import 'preparar_pdf.dart';
 
 /// 8 · Agregar documento: escanear, subir un PDF, elegir fotos de la galería
 /// o recibirlo por WhatsApp.
+///
+/// Con [reemplaza] es "Reemplazar": las mismas tres formas, pero las páginas
+/// nuevas van a ese documento (Guardar ya trae sus datos) en vez de crear otro.
 class AgregarScreen extends StatefulWidget {
-  const AgregarScreen({super.key});
+  const AgregarScreen({super.key, this.reemplaza});
+
+  final Documento? reemplaza;
 
   @override
   State<AgregarScreen> createState() => _AgregarScreenState();
@@ -33,6 +39,22 @@ class _AgregarScreenState extends State<AgregarScreen> {
   void _avisar(String mensaje) => ScaffoldMessenger.of(context)
     ..hideCurrentSnackBar()
     ..showSnackBar(SnackBar(content: Text(mensaje), behavior: SnackBarBehavior.floating));
+
+  /// Cámara → revisar las fotos → Guardar. Al reemplazar, la cámara devuelve
+  /// las fotos aquí y de aquí se va a Guardar con el documento.
+  Future<void> _escanear() async {
+    final reemplaza = widget.reemplaza;
+    if (reemplaza == null) {
+      Navigator.of(context).pushNamed(AppRoutes.escanear);
+      return;
+    }
+    final fotos = await Navigator.of(context).pushNamed(AppRoutes.escanear, arguments: true);
+    if (!mounted || fotos is! List<Uint8List> || fotos.isEmpty) return;
+    Navigator.of(context).pushNamed(
+      AppRoutes.guardar,
+      arguments: Reemplazo(documento: reemplaza, fotos: fotos),
+    );
+  }
 
   /// Explorador de archivos → se revisa que sea un PDF, se cuentan sus
   /// páginas y se dibuja la primera → Guardar.
@@ -64,10 +86,14 @@ class _AgregarScreenState extends State<AgregarScreen> {
     await cerrojo.esperarAbierto();
     if (!mounted) return;
     setState(() => _ocupado = null);
-    Navigator.of(context).pushNamed(AppRoutes.guardar, arguments: listo);
+    final reemplaza = widget.reemplaza;
+    Navigator.of(context).pushNamed(
+      AppRoutes.guardar,
+      arguments: reemplaza == null ? listo : Reemplazo(documento: reemplaza, pdf: listo),
+    );
   }
 
-  /// Galería (una o varias fotos) → Tus páginas, para revisarlas.
+  /// Galería (una o varias fotos) → Tus páginas, para revisarlas → Guardar.
   Future<void> _elegirFotos() async {
     if (_ocupado != null) return;
     final List<Uint8List> fotos;
@@ -79,7 +105,18 @@ class _AgregarScreenState extends State<AgregarScreen> {
       return;
     }
     if (!mounted || fotos.isEmpty) return;
-    Navigator.of(context).pushNamed(AppRoutes.paginas, arguments: EntradaPaginas(nuevas: fotos));
+    final reemplaza = widget.reemplaza;
+    if (reemplaza == null) {
+      Navigator.of(context).pushNamed(AppRoutes.paginas, arguments: EntradaPaginas(nuevas: fotos));
+      return;
+    }
+    final revisadas = await Navigator.of(context)
+        .pushNamed(AppRoutes.paginas, arguments: EntradaPaginas(nuevas: fotos, devolver: true));
+    if (!mounted || revisadas is! List<Uint8List> || revisadas.isEmpty) return;
+    Navigator.of(context).pushNamed(
+      AppRoutes.guardar,
+      arguments: Reemplazo(documento: reemplaza, fotos: revisadas),
+    );
   }
 
   @override
@@ -96,6 +133,7 @@ class _AgregarScreenState extends State<AgregarScreen> {
   }
 
   Widget _contenido(BuildContext context) {
+    final reemplaza = widget.reemplaza;
     return FillScroll(
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
       child: Column(
@@ -105,11 +143,11 @@ class _AgregarScreenState extends State<AgregarScreen> {
             alignment: Alignment.centerLeft,
             child: Transform.translate(
               offset: const Offset(-8, 0),
-              child: const BackButtonTc(semanticLabel: 'Volver a mi cajón'),
+              child: BackButtonTc(semanticLabel: reemplaza == null ? 'Volver a mi cajón' : 'Volver'),
             ),
           ),
           const SizedBox(height: 2),
-          const TwoToneTitle('Agregar documento', size: 32),
+          TwoToneTitle(reemplaza == null ? 'Agregar documento' : 'Reemplazar documento', size: 32),
           const SizedBox(height: 20),
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
@@ -124,7 +162,9 @@ class _AgregarScreenState extends State<AgregarScreen> {
                     radius: 18,
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                     child: Text(
-                      '¿Cómo tienes tu documento? Elige una opción.',
+                      reemplaza == null
+                          ? '¿Cómo tienes tu documento? Elige una opción.'
+                          : '¿Cómo tienes el nuevo «${reemplaza.nombre}»? Sus páginas cambiarán a las de antes.',
                       style: AppText.body(18, height: 1.35),
                     ),
                   ),
@@ -138,7 +178,7 @@ class _AgregarScreenState extends State<AgregarScreen> {
             titulo: 'Escanear con la cámara',
             texto: 'Le tomas foto al papel y lo convertimos en PDF.',
             destacada: true,
-            onTap: () => Navigator.of(context).pushNamed(AppRoutes.escanear),
+            onTap: _escanear,
           ),
           const SizedBox(height: 12),
           _Opcion(
@@ -155,45 +195,52 @@ class _AgregarScreenState extends State<AgregarScreen> {
             onTap: _elegirFotos,
           ),
           const SizedBox(height: 24),
+          if (reemplaza == null) const _ConsejoWhatsApp(),
+          const Spacer(),
+          const SizedBox(height: 24),
+          const PrivacyNote('Todo lo que agregas se guarda cifrado en este celular'),
+        ],
+      ),
+    );
+  }
+}
+
+/// Recuadro verde: cómo traer un documento desde WhatsApp.
+class _ConsejoWhatsApp extends StatelessWidget {
+  const _ConsejoWhatsApp();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.verdeSuave,
+        borderRadius: BorderRadius.circular(AppDecor.radioTarjeta),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
           Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: AppColors.verdeSuave,
-              borderRadius: BorderRadius.circular(AppDecor.radioTarjeta),
-            ),
-            child: Row(
+            width: 44,
+            height: 44,
+            decoration: const BoxDecoration(color: AppColors.superficie, shape: BoxShape.circle),
+            alignment: Alignment.center,
+            child: const TcIcon(AppIcons.whatsapp, size: 22, color: AppColors.verde),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              spacing: 4,
               children: [
-                Container(
-                  width: 44,
-                  height: 44,
-                  decoration: const BoxDecoration(color: AppColors.superficie, shape: BoxShape.circle),
-                  alignment: Alignment.center,
-                  child: const TcIcon(AppIcons.whatsapp, size: 22, color: AppColors.verde),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    spacing: 4,
-                    children: [
-                      Text(
-                        '¿Te lo mandaron por WhatsApp?',
-                        style: AppText.bold(16, color: AppColors.verdeTexto),
-                      ),
-                      Text(
-                        'En WhatsApp, toca Compartir y elige Tu Cajón. También sirve desde Gmail, Drive o tu galería.',
-                        style: AppText.body(15, color: AppColors.verdeTextoSuave, height: 1.45),
-                      ),
-                    ],
-                  ),
+                Text('¿Te lo mandaron por WhatsApp?', style: AppText.bold(16, color: AppColors.verdeTexto)),
+                Text(
+                  'En WhatsApp, toca Compartir y elige Tu Cajón. También sirve desde Gmail, Drive o tu galería.',
+                  style: AppText.body(15, color: AppColors.verdeTextoSuave, height: 1.45),
                 ),
               ],
             ),
           ),
-          const Spacer(),
-          const SizedBox(height: 24),
-          const PrivacyNote('Todo lo que agregas se guarda cifrado en este celular'),
         ],
       ),
     );

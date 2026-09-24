@@ -5,7 +5,12 @@ import 'package:tu_cajon/app.dart';
 import 'package:image/image.dart' as img;
 import 'package:tu_cajon/core/archivos/buzon.dart';
 import 'package:tu_cajon/core/archivos/selector_archivos.dart';
+import 'package:tu_cajon/core/avisos/recordatorios.dart';
 import 'package:tu_cajon/core/compartir/compartidor.dart';
+import 'package:tu_cajon/core/copia/llaves_de_copia.dart';
+import 'package:tu_cajon/core/copia/red.dart';
+import 'package:tu_cajon/data/copia/copia_de_seguridad.dart';
+import 'package:tu_cajon/data/copia/nube.dart';
 import 'package:tu_cajon/data/compartir/pdf_documento.dart';
 import 'package:tu_cajon/core/router/app_routes.dart';
 import 'package:tu_cajon/core/seguridad/llave_celular.dart';
@@ -14,6 +19,7 @@ import 'package:tu_cajon/data/models/documento.dart';
 import 'package:tu_cajon/data/models/perfil.dart';
 import 'package:tu_cajon/data/repositorio/memoria_repositorio.dart';
 import 'package:tu_cajon/features/cajon/cajon_shell.dart';
+import 'package:tu_cajon/features/cajon/widgets/barra_inferior.dart';
 import 'package:tu_cajon/shared/widgets/buttons.dart';
 
 import 'foto_prueba.dart';
@@ -57,7 +63,7 @@ void main() {
     );
     // Tampoco hay lector de PDF nativo ni buzón de "Compartir": responden
     // "no implementado".
-    for (final canal in ['tu_cajon/pdf', 'tu_cajon/recibir']) {
+    for (final canal in ['tu_cajon/pdf', 'tu_cajon/recibir', 'dexterous.com/flutter/local_notifications']) {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
         MethodChannel(canal),
         (_) async => throw MissingPluginException(),
@@ -79,6 +85,8 @@ void main() {
     'Preguntar': (AppRoutes.preguntar, null),
     'Nuevo perfil': (AppRoutes.nuevoPerfil, null),
     'Catálogo': (AppRoutes.catalogo, null),
+    'Ajustes': (AppRoutes.ajustes, null),
+    'Recuperar mi cajón': (AppRoutes.recuperar, null),
   };
 
   for (final MapEntry(key: nombre, value: (ruta, args)) in rutas.entries) {
@@ -144,6 +152,11 @@ void main() {
     expect(find.text('RUT'), findsNothing);
     expect(find.text('1 documento'), findsOneWidget);
 
+    // Salir de la búsqueda: vuelven los perfiles.
+    await tester.scrollUntilVisible(find.text('Cancelar'), -200, scrollable: paginaVertical.first);
+    await tester.tap(find.text('Cancelar'));
+    await tester.pump(const Duration(milliseconds: 300));
+
     // Cambiar al perfil de Mamá.
     await tester.scrollUntilVisible(find.text('Mamá'), -200, scrollable: paginaVertical.first);
     await tester.tap(find.text('Mamá'));
@@ -157,7 +170,16 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
     // Ejemplo: renovar la licencia, 2 certificados viejos y "agregar bancario".
     for (final boton in ['Ya lo hice', 'Descartar', 'Descartar', 'Ahora no']) {
-      await tester.scrollUntilVisible(find.text(boton).first, 150, scrollable: find.byType(Scrollable).last);
+      // Desde arriba cada vez: al quitar una tarjeta, la siguiente puede quedar más arriba.
+      final lista = find.byType(Scrollable).last;
+      await tester.drag(lista, const Offset(0, 3000));
+      await tester.pump();
+      // La lista solo dibuja lo que se ve: se baja hasta que aparezca el botón.
+      for (var i = 0; i < 30 && find.text(boton).evaluate().isEmpty; i++) {
+        await tester.drag(lista, const Offset(0, -150));
+        await tester.pump();
+      }
+      await tester.ensureVisible(find.text(boton).first);
       await tester.pump();
       await tester.tap(find.text(boton).first);
       await tester.pump(const Duration(milliseconds: 400));
@@ -396,6 +418,254 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.text('Toca una miniatura para revisarla, toma otra página o toca Terminar'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  group('Buscar en mi cajón', () {
+    testWidgets('Al tocar el buscador queda la lista de documentos y se filtra al escribir', (tester) async {
+      await abrir(tester, AppRoutes.cajon, args: CajonTab.inicio);
+      expect(find.text('Perfiles'), findsOneWidget);
+
+      await tester.tap(find.byType(TextField));
+      await tester.pump(const Duration(milliseconds: 300));
+      // Se esconden el saludo y los perfiles, y el buscador sigue con el teclado.
+      expect(find.text('Perfiles'), findsNothing);
+      expect(find.text('Cancelar'), findsOneWidget);
+      expect(tester.widget<TextField>(find.byType(TextField)).focusNode!.hasFocus, isTrue);
+      expect(find.text('8 documentos'), findsOneWidget);
+
+      // Al escribir se va filtrando, sin perder el teclado.
+      await tester.enterText(find.byType(TextField), 'conduccion');
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump(); // los resultados llegan en el cuadro siguiente
+      expect(find.text('1 documento'), findsOneWidget);
+      expect(find.text('Licencia de conducción'), findsOneWidget);
+      expect(tester.widget<TextField>(find.byType(TextField)).focusNode!.hasFocus, isTrue);
+
+      // "Cancelar" vuelve a lo normal y borra la búsqueda.
+      await tester.tap(find.text('Cancelar'));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.text('Perfiles'), findsOneWidget);
+      expect(find.text('Cancelar'), findsNothing);
+      expect(find.text('8 documentos'), findsWidgets); // en la lista y en su perfil
+      expect(tester.widget<TextField>(find.byType(TextField)).controller!.text, isEmpty);
+    });
+
+    testWidgets('Con el teclado abierto se esconde la barra de abajo', (tester) async {
+      await abrir(tester, AppRoutes.cajon, args: CajonTab.inicio);
+      double opacidad() => tester
+          .widget<AnimatedOpacity>(
+            find.ancestor(of: find.byType(BarraInferior), matching: find.byType(AnimatedOpacity)).first,
+          )
+          .opacity;
+      expect(opacidad(), 1);
+
+      await tester.tap(find.byType(TextField));
+      tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(opacidad(), 0);
+
+      // Se baja el teclado: la barra vuelve.
+      tester.view.resetViewInsets();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(opacidad(), 1);
+    });
+
+    testWidgets('El botón atrás primero sale de la búsqueda', (tester) async {
+      await abrir(tester, AppRoutes.cajon, args: CajonTab.inicio);
+      await tester.enterText(find.byType(TextField), 'rut');
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.text('Perfiles'), findsNothing);
+
+      await tester.binding.handlePopRoute();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.text('Perfiles'), findsOneWidget);
+      expect(find.text('Cancelar'), findsNothing);
+      expect(tester.widget<TextField>(find.byType(TextField)).controller!.text, isEmpty);
+    });
+  });
+
+  group('Copia de seguridad', () {
+    Future<void> abrirCon(
+      WidgetTester tester,
+      String ruta, {
+      required MemoriaCajonRepositorio repo,
+      required CopiaDeSeguridad copia,
+      Object? args,
+    }) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        TuCajonApp(
+          key: UniqueKey(),
+          repo: repo,
+          llave: LlaveSimulada(),
+          copia: copia,
+          rutaInicial: ruta,
+          argumentos: args,
+        ),
+      );
+      await tester.pump(const Duration(seconds: 2));
+    }
+
+    Future<void> tocar(WidgetTester tester, Finder f) async {
+      await tester.ensureVisible(f);
+      await tester.pump();
+      await tester.tap(f);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+    }
+
+    /// Un celular viejo con su copia hecha. Devuelve la llave de la copia y,
+    /// si se pide, el código de emergencia.
+    Future<(Uint8List, String?)> copiaDeOtroCelular(NubeEnMemoria nube, {bool conCodigo = false}) async {
+      final viejo = MemoriaCajonRepositorio();
+      final llaves = LlavesSimuladas();
+      final copia = CopiaDeSeguridad(repo: viejo, nube: nube, llaves: llaves, red: RedSimulada());
+      await viejo.guardarDocumento(
+        const NuevoDocumento(
+          perfilId: Perfil.idPropio,
+          nombre: 'Tarjeta de propiedad',
+          categoria: Categoria.vehiculo,
+        ),
+        paginas: [
+          Uint8List.fromList([1, 2, 3]),
+        ],
+      );
+      await copia.conectar();
+      await copia.hacerCopia();
+      final codigo = conCodigo ? await copia.crearCodigoDeEmergencia() : null;
+      return ((await llaves.leer())!, codigo);
+    }
+
+    testWidgets('Ajustes: conectar, copia al día, código de emergencia y desconectar', (tester) async {
+      final repo = MemoriaCajonRepositorio();
+      final nube = NubeEnMemoria();
+      final copia = CopiaDeSeguridad(repo: repo, nube: nube, llaves: LlavesSimuladas(), red: RedSimulada());
+      await abrirCon(tester, AppRoutes.cajon, repo: repo, copia: copia, args: CajonTab.inicio);
+
+      await tocar(tester, find.bySemanticsLabel('Ajustes'));
+      expect(find.text('Copia de seguridad'), findsOneWidget);
+      expect(find.text('Sin conectar'), findsOneWidget);
+      expect(find.textContaining('Modo de prueba'), findsOneWidget);
+
+      await tocar(tester, find.text('Conectar con Google'));
+      await tester.pump();
+      expect(find.text('marta@gmail.com'), findsOneWidget);
+      expect(find.textContaining('Última copia: hoy'), findsOneWidget);
+      expect(find.textContaining('12 documentos'), findsOneWidget);
+      expect(nube.archivos, contains(CopiaDeSeguridad.archivoIndice));
+
+      // Solo con Wi-Fi: se apaga y se recuerda.
+      await tocar(tester, find.text('Solo con Wi-Fi'));
+      expect(copia.estado.value.soloWifi, isFalse);
+
+      // El código de emergencia se muestra una sola vez.
+      await tocar(tester, find.text('Crear'));
+      expect(find.text('Tu código de emergencia'), findsOneWidget);
+      expect(find.text('No lo volveremos a mostrar.'), findsOneWidget);
+      await tocar(tester, find.text('Ya lo anoté'));
+      expect(find.textContaining('Creado el'), findsOneWidget);
+      expect(nube.archivos, contains(CopiaDeSeguridad.archivoEmergencia));
+
+      // Hacer copia ahora (arriba: la lista solo dibuja lo que se ve).
+      await tester.scrollUntilVisible(
+        find.text('Hacer copia ahora'),
+        -200,
+        scrollable: find.byType(Scrollable).last,
+      );
+      await tocar(tester, find.text('Hacer copia ahora'));
+      await tester.pump();
+      expect(find.text('Listo: tu copia está al día.'), findsOneWidget);
+
+      // Desconectar pregunta, y la copia se queda en la nube.
+      await tocar(tester, find.text('Desconectar Google Drive'));
+      expect(find.text('¿Desconectar Google Drive?'), findsOneWidget);
+      await tocar(tester, find.text('Desconectar'));
+      expect(find.text('Sin conectar'), findsOneWidget);
+      expect(nube.archivos, contains(CopiaDeSeguridad.archivoIndice));
+      await tester.pump(const Duration(seconds: 3));
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('Recuperar desde la bienvenida con la llave que llegó sola', (tester) async {
+      final nube = NubeEnMemoria();
+      final (llave, _) = await copiaDeOtroCelular(nube);
+      final repo = MemoriaCajonRepositorio(ejemplo: false);
+      final copia = CopiaDeSeguridad(
+        repo: repo,
+        nube: nube,
+        llaves: LlavesSimuladas(deOtroCelular: llave),
+        red: RedSimulada(),
+      );
+      await abrirCon(tester, AppRoutes.bienvenida, repo: repo, copia: copia);
+
+      await tocar(tester, find.text('¿Ya tenías Tu Cajón en otro celular? Recupéralo'));
+      await tocar(tester, find.text('Conectar con Google'));
+      await tester.pump();
+      expect(find.textContaining('Copia del'), findsOneWidget);
+      expect(find.textContaining('Marta · 13 documentos · 2 perfiles'), findsOneWidget);
+
+      await tocar(tester, find.widgetWithText(PrimaryButton, 'Recuperar mi cajón'));
+      await tester.pump();
+      expect(find.text('¡Listo, Marta!'), findsOneWidget);
+      expect(find.textContaining('Recuperamos 13 documentos'), findsOneWidget);
+      final contenido = await repo.leerContenido();
+      expect(contenido.nombre, 'Marta');
+      final tarjeta = contenido.documentos.firstWhere((d) => d.nombre == 'Tarjeta de propiedad');
+      expect(await repo.leerPaginas(tarjeta), [
+        [1, 2, 3],
+      ]);
+      expect(copia.estado.value.conectada, isTrue);
+
+      // Sigue a la llave del cajón de este celular.
+      await tocar(tester, find.text('Seguir'));
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.text('Activar la llave'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 5));
+    });
+
+    testWidgets('Recuperar con el código de emergencia', (tester) async {
+      final nube = NubeEnMemoria();
+      final (_, codigo) = await copiaDeOtroCelular(nube, conCodigo: true);
+      final repo = MemoriaCajonRepositorio(ejemplo: false);
+      final copia = CopiaDeSeguridad(repo: repo, nube: nube, llaves: LlavesSimuladas(), red: RedSimulada());
+      await abrirCon(tester, AppRoutes.recuperar, repo: repo, copia: copia);
+
+      await tocar(tester, find.text('Conectar con Google'));
+      await tester.pump();
+      expect(find.textContaining('Encontramos tu copia del'), findsOneWidget);
+
+      await tester.enterText(find.byType(TextField), 'AAAA-BBBB-CCCC-DDDD');
+      await tocar(tester, find.text('Abrir la copia'));
+      await tester.pump();
+      expect(find.text('Ese código no abre la copia. Revísalo.'), findsOneWidget);
+
+      await tester.enterText(find.byType(TextField), codigo!.toLowerCase());
+      await tocar(tester, find.text('Abrir la copia'));
+      await tester.pump();
+      expect(find.textContaining('Copia del'), findsOneWidget);
+      await tocar(tester, find.widgetWithText(PrimaryButton, 'Recuperar mi cajón'));
+      await tester.pump();
+      expect(find.text('¡Listo, Marta!'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 2));
+    });
+
+    testWidgets('Recuperar sin copia en la cuenta', (tester) async {
+      final repo = MemoriaCajonRepositorio(ejemplo: false);
+      final copia = CopiaDeSeguridad(
+        repo: repo,
+        nube: NubeEnMemoria(),
+        llaves: LlavesSimuladas(),
+        red: RedSimulada(),
+      );
+      await abrirCon(tester, AppRoutes.recuperar, repo: repo, copia: copia);
+      await tocar(tester, find.text('Conectar con Google'));
+      await tester.pump();
+      expect(find.text('No encontramos una copia de Tu Cajón en esta cuenta.'), findsOneWidget);
+      expect(find.text('Empezar de cero'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 2));
+    });
   });
 
   group('Subir un archivo', () {
@@ -656,6 +926,434 @@ void main() {
       expect(find.text('Hola de nuevo,'), findsOneWidget);
       await tester.pump(const Duration(seconds: 4));
       await tester.pump(const Duration(seconds: 1));
+    });
+  });
+
+  testWidgets('Guardar desde la cámara no dice que una IA llenó los datos', (tester) async {
+    await abrir(tester, AppRoutes.guardar, args: 2);
+    expect(find.textContaining('IA'), findsNothing);
+    expect(find.textContaining('cédula'), findsNothing);
+    expect(find.text('Ponle un nombre'), findsOneWidget);
+    expect(find.text('Escribe un nombre para guardar'), findsOneWidget);
+  });
+
+  group('Avisos de vencimiento', () {
+    Future<void> abrirCon(
+      WidgetTester tester,
+      RecordatoriosSimulados recordatorios, {
+      MemoriaCajonRepositorio? repo,
+      String ruta = AppRoutes.cajon,
+      Object? args,
+      LlaveSimulada? llave,
+    }) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpWidget(
+        TuCajonApp(
+          key: UniqueKey(),
+          repo: repo ?? MemoriaCajonRepositorio(),
+          llave: llave ?? LlaveSimulada(),
+          recordatorios: recordatorios,
+          rutaInicial: ruta,
+          argumentos: args,
+        ),
+      );
+      await tester.pump(const Duration(seconds: 1));
+    }
+
+    /// Baja por la lista hasta [f] (las listas largas solo dibujan lo que se
+    /// ve) y lo toca.
+    Future<void> tocar(WidgetTester tester, Finder f) async {
+      final listas = find.byWidgetPredicate((w) => w is Scrollable && w.axisDirection == AxisDirection.down);
+      await tester.scrollUntilVisible(f, 150, scrollable: listas.last);
+      await tester.pump();
+      await tester.tap(f);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+    }
+
+    testWidgets('Al abrir, se programan los avisos de los documentos con fecha', (tester) async {
+      final rec = RecordatoriosSimulados();
+      await abrirCon(tester, rec);
+      // Los datos de ejemplo tienen la licencia (vence en 18 días) y otros.
+      expect(rec.vencimientos, isNotEmpty);
+      expect(rec.vencimientos.map((a) => a.titulo), contains('«Licencia de conducción» vence en 7 días'));
+    });
+
+    testWidgets('Guardar algo con fecha programa sus avisos y pide el permiso una vez', (tester) async {
+      final rec = RecordatoriosSimulados(estado: PermisoAvisos.sinPedir);
+      await abrirCon(tester, rec, ruta: AppRoutes.guardar, args: 1);
+      await tester.enterText(find.byType(TextField), 'SOAT de la moto');
+      await tester.pump();
+      await tocar(tester, find.text('¿Este documento se vence?'));
+      expect(find.textContaining('Te avisamos con una notificación'), findsOneWidget);
+      await tocar(tester, find.text('Guardar en mi cajón'));
+      await tester.pump(const Duration(seconds: 1));
+
+      expect(rec.permisosPedidos, 1);
+      final delSoat = rec.vencimientos.where((a) => a.titulo.startsWith('«SOAT de la moto»')).toList();
+      // Vence en un año: los tres avisos.
+      expect(delSoat.map((a) => a.titulo), [
+        '«SOAT de la moto» vence en 30 días',
+        '«SOAT de la moto» vence en 7 días',
+        '«SOAT de la moto» vence hoy',
+      ]);
+      expect(delSoat.every((a) => a.cuando.hour == 9), isTrue);
+    });
+
+    testWidgets('Sin permiso, Avisos ofrece activarlas; bloqueadas, abre los ajustes', (tester) async {
+      final rec = RecordatoriosSimulados(estado: PermisoAvisos.sinPedir);
+      await abrirCon(tester, rec, ruta: AppRoutes.cajon, args: CajonTab.avisos);
+      await tocar(tester, find.text('Activar'));
+      expect(rec.permisosPedidos, 1);
+      // La tarjeta se cambia por cuándo llegan los avisos (un poco más arriba).
+      await tester.scrollUntilVisible(
+        find.textContaining('Te avisamos 30 días y 7 días antes'),
+        -150,
+        scrollable: find.byType(Scrollable).last,
+      );
+      expect(find.text('Activa las notificaciones'), findsNothing);
+
+      final bloqueadas = RecordatoriosSimulados(estado: PermisoAvisos.bloqueado);
+      await abrirCon(tester, bloqueadas, ruta: AppRoutes.cajon, args: CajonTab.avisos);
+      await tocar(tester, find.text('Abrir ajustes'));
+      expect(bloqueadas.ajustesAbiertos, 1);
+      expect(bloqueadas.permisosPedidos, 0);
+    });
+
+    testWidgets('"Recordarme el lunes" programa una notificación de verdad', (tester) async {
+      final rec = RecordatoriosSimulados();
+      await abrirCon(tester, rec, ruta: AppRoutes.cajon, args: CajonTab.avisos);
+      await tocar(tester, find.text('Recordarme el lunes'));
+      final aviso = rec.recordatorios.single;
+      expect(aviso.titulo, 'Recuerda renovar «Licencia de conducción»');
+      expect(aviso.cuando.weekday, DateTime.monday);
+      expect(aviso.cuando.hour, 9);
+      expect(find.textContaining('Te lo recordamos el lunes'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 4));
+    });
+
+    testWidgets('Tocar un aviso abre ese documento, pero después de la llave', (tester) async {
+      final repo = MemoriaCajonRepositorio();
+      final id = await repo.guardarDocumento(
+        NuevoDocumento(
+          perfilId: Perfil.idPropio,
+          nombre: 'Pasado judicial',
+          categoria: Categoria.otro,
+          venceEn: DateTime.now().add(const Duration(days: 7)),
+        ),
+      );
+      final rec = RecordatoriosSimulados();
+      final llave = LlaveSimulada();
+      await abrirCon(tester, rec, repo: repo, llave: llave, ruta: AppRoutes.desbloqueo);
+      await tester.pump(const Duration(seconds: 4));
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.byType(CajonShell), findsOneWidget);
+
+      // Con la app en segundo plano llega el aviso y la persona lo toca.
+      salirDeLaApp(tester);
+      await tester.pump();
+      rec.tocar(id);
+      volverALaApp(tester);
+      await tester.pump();
+      expect(find.text('Hola de nuevo,'), findsOneWidget);
+      expect(find.textContaining('judicial'), findsNothing);
+
+      await tester.pump(const Duration(seconds: 4));
+      await tester.pump(const Duration(seconds: 1));
+      for (var i = 0; i < 4; i++) {
+        await tester.pump(const Duration(milliseconds: 400));
+      }
+      expect(llave.intentos, 2);
+      expect(find.text('Hola de nuevo,'), findsNothing);
+      expect(find.textContaining('judicial'), findsWidgets);
+    });
+  });
+
+  group('Editar un documento', () {
+    Uint8List jpeg(int w, int h) => Uint8List.fromList(img.encodeJpg(img.Image(width: w, height: h)));
+
+    /// Guarda una licencia de Mamá (con fotos o un PDF, vence en enero) y
+    /// abre su detalle.
+    Future<(MemoriaCajonRepositorio, String)> abrirDetalle(
+      WidgetTester tester, {
+      List<Uint8List> paginas = const [],
+      Uint8List? pdf,
+      SelectorSimulado? selector,
+    }) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final repo = MemoriaCajonRepositorio();
+      final id = await repo.guardarDocumento(
+        NuevoDocumento(
+          perfilId: 'mama',
+          nombre: 'Licencia vieja',
+          categoria: Categoria.vehiculo,
+          paginas: pdf != null ? 2 : paginas.length,
+          venceEn: DateTime(2027, 1, 10),
+        ),
+        paginas: paginas,
+        pdf: pdf,
+      );
+      await tester.pumpWidget(
+        TuCajonApp(
+          repo: repo,
+          llave: LlaveSimulada(),
+          selector: selector ?? SelectorSimulado(),
+          compartidor: CompartidorSimulado(),
+          recordatorios: RecordatoriosSimulados(),
+          rutaInicial: AppRoutes.detalle,
+          argumentos: id,
+        ),
+      );
+      await tester.pump(const Duration(seconds: 1));
+      return (repo, id);
+    }
+
+    /// Baja por la lista hasta [f] si hace falta y lo toca.
+    Future<void> tocar(WidgetTester tester, Finder f) async {
+      final listas = find.byWidgetPredicate((w) => w is Scrollable && w.axisDirection == AxisDirection.down);
+      await tester.scrollUntilVisible(f, 150, scrollable: listas.last);
+      await tester.pump();
+      await tester.tap(f);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+    }
+
+    testWidgets('Editar datos: cambia nombre, de quién es, tipo y fecha sin tocar las páginas', (
+      tester,
+    ) async {
+      final (repo, id) = await abrirDetalle(tester, paginas: [fotoPrueba, fotoPrueba]);
+      final antes = (await repo.vigilarDocumento(id).first)!;
+      await tocar(tester, find.text('Editar datos'));
+      expect(find.text('Cambia lo que necesites'), findsOneWidget);
+      expect(find.text('Otra página'), findsNothing);
+      expect(find.text('Licencia vieja'), findsOneWidget); // el nombre ya viene puesto
+
+      await tester.enterText(find.byType(TextField), 'Licencia de conducción');
+      await tester.pump();
+      await tocar(tester, find.text('Mío'));
+      await tocar(tester, find.text('Identidad'));
+      await tocar(tester, find.text('¿Este documento se vence?')); // ya no se vence
+      await tocar(tester, find.text('Guardar cambios'));
+      await tester.pump(const Duration(seconds: 1));
+
+      final despues = (await repo.vigilarDocumento(id).first)!;
+      expect(despues.nombre, 'Licencia de conducción');
+      expect(despues.perfilId, Perfil.idPropio);
+      expect(despues.categoria, Categoria.identidad);
+      expect(despues.venceEn, isNull);
+      // Las páginas son las mismas: mismo archivo cifrado.
+      expect(despues.archivo, antes.archivo);
+      expect(await repo.leerPaginas(despues), hasLength(2));
+      // De vuelta en el documento.
+      expect(find.text('Editar páginas'), findsOneWidget);
+      expect(find.text('Listo: cambios guardados.'), findsWidgets);
+      await tester.pump(const Duration(seconds: 4));
+    });
+
+    testWidgets('Editar páginas: quitar una, agregar otra y guardar en el mismo documento', (tester) async {
+      final (repo, id) = await abrirDetalle(
+        tester,
+        paginas: [jpeg(300, 400), jpeg(300, 400)],
+        selector: SelectorSimulado(fotos: [jpeg(400, 300)]),
+      );
+      await tocar(tester, find.text('Editar páginas'));
+      expect(find.text('Página 2'), findsOneWidget);
+      expect(find.text('Todavía no hay cambios'), findsOneWidget);
+
+      // Agregar una de la galería (se prepara de verdad, en otro hilo).
+      await tocar(tester, find.text('De la galería'));
+      await esperarHasta(tester, () => find.text('Página 3').evaluate().isNotEmpty);
+
+      // Quitar la primera desde su revisión.
+      await tocar(tester, find.text('Página 1'));
+      await tester.pump(const Duration(milliseconds: 600));
+      await tester.tap(find.text('Eliminar'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+      expect(find.text('Página 3'), findsNothing);
+
+      await tocar(tester, find.text('Guardar cambios'));
+      await tester.pump(const Duration(seconds: 1));
+
+      final doc = (await repo.vigilarDocumento(id).first)!;
+      expect(await repo.leerPaginas(doc), hasLength(2));
+      expect(doc.paginas, 2);
+      // Sigue donde estaba: mismo perfil, tipo, nombre y fecha.
+      expect(doc.perfilId, 'mama');
+      expect(doc.categoria, Categoria.vehiculo);
+      expect(doc.nombre, 'Licencia vieja');
+      expect(doc.venceEn, DateTime(2027, 1, 10));
+      expect((await repo.vigilarTodos().first).where((d) => d.nombre == 'Licencia vieja'), hasLength(1));
+      expect(find.textContaining('quedó con 2 páginas'), findsWidgets);
+      await tester.pump(const Duration(seconds: 4));
+    });
+
+    testWidgets('Salir de editar páginas con cambios pide confirmación', (tester) async {
+      final (repo, id) = await abrirDetalle(
+        tester,
+        paginas: [jpeg(300, 400), jpeg(300, 400)],
+        selector: SelectorSimulado(fotos: [jpeg(400, 300)]),
+      );
+      await tocar(tester, find.text('Editar páginas'));
+      await tocar(tester, find.text('De la galería'));
+      await esperarHasta(tester, () => find.text('Página 3').evaluate().isNotEmpty);
+
+      await tester.binding.handlePopRoute();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.text('¿Salir sin guardar?'), findsOneWidget);
+      await tester.tap(find.text('Seguir editando'));
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.text('Página 3'), findsOneWidget);
+
+      await tester.binding.handlePopRoute();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tap(find.text('Salir'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+      expect(find.text('Editar datos'), findsOneWidget);
+      final doc = (await repo.vigilarDocumento(id).first)!;
+      expect(await repo.leerPaginas(doc), hasLength(2));
+    });
+
+    testWidgets('Un PDF subido se edita con sus páginas dibujadas y queda como imágenes', (tester) async {
+      final mensajero = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      const canal = MethodChannel('tu_cajon/pdf');
+      final paginasDibujadas = [jpeg(300, 400), jpeg(300, 400)];
+      mensajero.setMockMethodCallHandler(canal, (llamada) async {
+        return switch (llamada.method) {
+          'contar' => 2,
+          'dibujar' => paginasDibujadas,
+          _ => null,
+        };
+      });
+      addTearDown(
+        () => mensajero.setMockMethodCallHandler(canal, (_) async => throw MissingPluginException()),
+      );
+      final pdf = await armarPdf([fotoPrueba, fotoPrueba], titulo: 'Licencia');
+      final (repo, id) = await abrirDetalle(tester, pdf: pdf);
+
+      await tocar(tester, find.text('Editar páginas'));
+      expect(find.textContaining('Era un PDF'), findsOneWidget);
+      expect(find.text('Página 2'), findsOneWidget);
+
+      // Mejorar todas con B/N y guardar.
+      await tester.tap(find.text('B/N'));
+      await tester.pump();
+      await esperarHasta(tester, () => find.text('Filtro B/N').evaluate().length == 2);
+      await tocar(tester, find.text('Guardar cambios'));
+      await tester.pump(const Duration(seconds: 1));
+
+      final doc = (await repo.vigilarDocumento(id).first)!;
+      expect(await repo.leerPdf(doc), isNull);
+      expect(await repo.leerPaginas(doc), hasLength(2));
+      await tester.pump(const Duration(seconds: 4));
+    });
+  });
+
+  group('Reemplazar un documento', () {
+    Uint8List jpeg(int w, int h) => Uint8List.fromList(img.encodeJpg(img.Image(width: w, height: h)));
+
+    /// Guarda una licencia de Mamá (2 fotos, vencida) y abre su detalle.
+    Future<(MemoriaCajonRepositorio, String)> abrirDetalle(
+      WidgetTester tester,
+      SelectorSimulado selector,
+    ) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final repo = MemoriaCajonRepositorio();
+      final id = await repo.guardarDocumento(
+        NuevoDocumento(
+          perfilId: 'mama',
+          nombre: 'Licencia vieja',
+          categoria: Categoria.vehiculo,
+          paginas: 2,
+          venceEn: DateTime(2026, 1, 10),
+        ),
+        paginas: [fotoPrueba, fotoPrueba],
+      );
+      await tester.pumpWidget(
+        TuCajonApp(
+          repo: repo,
+          llave: LlaveSimulada(),
+          selector: selector,
+          compartidor: CompartidorSimulado(),
+          rutaInicial: AppRoutes.detalle,
+          argumentos: id,
+        ),
+      );
+      await tester.pump(const Duration(seconds: 1));
+      return (repo, id);
+    }
+
+    Future<void> tocar(WidgetTester tester, Finder f) async {
+      await tester.ensureVisible(f);
+      await tester.pump();
+      await tester.tap(f);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+    }
+
+    final botonReemplazar = find.descendant(
+      of: find.byType(PrimaryButton),
+      matching: find.text('Reemplazar documento'),
+    );
+
+    testWidgets('Con fotos: el mismo documento queda con las páginas nuevas y sus datos', (tester) async {
+      final (repo, id) = await abrirDetalle(
+        tester,
+        SelectorSimulado(fotos: [jpeg(300, 400), jpeg(300, 400), jpeg(300, 400)]),
+      );
+      await tocar(tester, find.text('Reemplazar'));
+      expect(find.textContaining('¿Cómo tienes el nuevo «Licencia vieja»?'), findsOneWidget);
+      expect(find.text('¿Te lo mandaron por WhatsApp?'), findsNothing);
+
+      await tocar(tester, find.text('Fotos de la galería'));
+      await esperarHasta(tester, () => find.text('Continuar con 3 páginas').evaluate().isNotEmpty);
+      await tocar(tester, find.text('Continuar con 3 páginas'));
+
+      // Guardar trae los datos del documento y no ofrece "Otra página".
+      expect(find.text('Reemplazas «Licencia vieja»'), findsOneWidget);
+      expect(find.text('Licencia vieja'), findsOneWidget);
+      expect(find.text('Otra página'), findsNothing);
+      await tocar(tester, botonReemplazar);
+      await tester.pump(const Duration(seconds: 1));
+
+      final iguales = (await repo.vigilarTodos().first).where((d) => d.nombre == 'Licencia vieja').toList();
+      expect(iguales, hasLength(1));
+      final doc = iguales.single;
+      expect(doc.id, id);
+      expect(doc.perfilId, 'mama');
+      expect(doc.venceEn, DateTime(2026, 1, 10));
+      expect(await repo.leerPaginas(doc), hasLength(3));
+      expect(find.textContaining('ya tiene las páginas nuevas'), findsWidgets);
+      await tester.pump(const Duration(seconds: 4));
+    });
+
+    testWidgets('Con un PDF: el documento pasa a ser ese PDF y conserva su nombre', (tester) async {
+      final pdf = await armarPdf([fotoPrueba], titulo: 'Licencia');
+      final (repo, id) = await abrirDetalle(
+        tester,
+        SelectorSimulado(
+          pdf: PdfElegido(nombre: 'licencia_2027.pdf', bytes: pdf),
+        ),
+      );
+      await tocar(tester, find.text('Reemplazar'));
+      await tocar(tester, find.text('Subir un PDF'));
+      expect(find.text('Reemplazas «Licencia vieja»'), findsOneWidget);
+      expect(find.text('Licencia vieja'), findsOneWidget);
+      await tocar(tester, botonReemplazar);
+      await tester.pump(const Duration(seconds: 1));
+
+      final doc = (await repo.vigilarDocumento(id).first)!;
+      expect(await repo.leerPdf(doc), pdf);
+      expect(await repo.leerPaginas(doc), isEmpty);
+      await tester.pump(const Duration(seconds: 4));
     });
   });
 

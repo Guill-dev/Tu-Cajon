@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- La versión final quita los recursos que no ve usados; el ícono de las
+     notificaciones se pide por su nombre desde Dart, así que se conserva. -->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@drawable/ic_notificacion" />

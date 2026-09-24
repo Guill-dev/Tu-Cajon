@@ -132,7 +132,7 @@ class _RecibirScreenState extends State<RecibirScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Center(child: CajonMini(width: 104, abierto: problema == null)),
+              Center(child: CajonMini(width: 124, abierto: problema == null)),
               const SizedBox(height: 32),
               Semantics(
                 liveRegion: true,

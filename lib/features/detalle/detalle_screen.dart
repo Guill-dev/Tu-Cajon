@@ -7,6 +7,7 @@ import '../../core/theme/app_decor.dart';
 import '../../core/theme/app_text.dart';
 import '../../core/pdf/lector_pdf.dart';
 import '../../core/router/app_routes.dart';
+import '../../core/seguridad/cerrojo.dart';
 import '../../data/repositorio/repositorio_scope.dart';
 import '../../data/models/documento.dart';
 import '../../shared/illustrations/cedula_dibujo.dart';
@@ -17,6 +18,8 @@ import '../../shared/widgets/tc_icon.dart';
 import '../../shared/widgets/tc_tap.dart';
 import '../../shared/widgets/toast.dart';
 import '../compartir/enviar_documento.dart';
+import '../guardar/guardar_screen.dart';
+import '../paginas/paginas_screen.dart';
 import 'visor_paginas.dart';
 
 /// 6 · Documento: vista previa, datos, acciones y "Enviar por WhatsApp".
@@ -50,11 +53,58 @@ class _DetalleScreenState extends State<DetalleScreen> with ToastMixin {
       ? context.repo.vigilarDocumento(widget.documentoId!)
       : context.repo.vigilarTodos().map((docs) => docs.firstOrNull);
 
-  Future<void> _renombrar(Documento d) async {
-    final nuevo = await pedirNombre(context, actual: d.nombre);
-    if (!mounted || nuevo == null || nuevo.trim().isEmpty || nuevo.trim() == d.nombre) return;
-    await context.repo.renombrarDocumento(d.id, nuevo);
-    showToast('Listo. Ahora se llama “${nuevo.trim()}”.');
+  /// Mientras se descifran las páginas para editarlas.
+  bool _abriendoPaginas = false;
+
+  /// El PDF más largo que se deja editar (sus páginas se dibujan todas).
+  static const _maximoPaginasPdf = 60;
+
+  /// "Editar páginas": se descifran las páginas (o se dibujan las del PDF
+  /// subido) y se abren con las herramientas de siempre.
+  Future<void> _editarPaginas(Documento d) async {
+    if (_abriendoPaginas) return;
+    setState(() => _abriendoPaginas = true);
+    final repo = context.repo;
+    final cerrojo = context.cerrojo;
+    final navigator = Navigator.of(context);
+    try {
+      var paginas = await repo.leerPaginas(d);
+      var eraPdf = false;
+      if (paginas.isEmpty) {
+        final pdf = await repo.leerPdf(d);
+        if (pdf != null) {
+          final total = await LectorPdf.contarPaginas(pdf);
+          if (total > _maximoPaginasPdf) {
+            if (mounted) {
+              showToast(
+                'Este PDF tiene $total páginas; se pueden editar hasta $_maximoPaginasPdf. Puedes reemplazarlo.',
+                duration: const Duration(seconds: 5),
+              );
+            }
+            return;
+          }
+          paginas = await LectorPdf.dibujar(pdf, ancho: 1700);
+          eraPdf = true;
+        }
+      }
+      // Si la persona salió mientras tanto, primero abre con su llave.
+      await cerrojo.esperarAbierto();
+      if (!mounted) return;
+      navigator.pushNamed(
+        AppRoutes.paginas,
+        arguments: EntradaPaginas(listas: paginas, edita: d, eraPdf: eraPdf),
+      );
+    } on ErrorPdf catch (e) {
+      if (!mounted) return;
+      showToast(
+        e.problema == ProblemaPdf.conClave
+            ? 'Este PDF tiene contraseña: sus páginas no se pueden editar aquí. Puedes reemplazarlo.'
+            : e.mensaje,
+        duration: const Duration(seconds: 5),
+      );
+    } finally {
+      if (mounted) setState(() => _abriendoPaginas = false);
+    }
   }
 
   Future<void> _eliminar(Documento d) async {
@@ -109,15 +159,32 @@ class _DetalleScreenState extends State<DetalleScreen> with ToastMixin {
                             Expanded(
                               child: _Accion(
                                 icono: AppIcons.lapiz,
-                                etiqueta: 'Renombrar',
-                                onTap: () => _renombrar(d),
+                                etiqueta: 'Editar datos',
+                                // Nombre, de quién es, tipo y vencimiento.
+                                onTap: () =>
+                                    Navigator.of(context)
+                                        .pushNamed(AppRoutes.guardar, arguments: EditarDatos(d)),
                               ),
                             ),
                             Expanded(
                               child: _Accion(
+                                icono: AppIcons.galeria,
+                                etiqueta: _abriendoPaginas ? 'Abriendo…' : 'Editar páginas',
+                                onTap: () => _editarPaginas(d),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          spacing: 8,
+                          children: [
+                            Expanded(
+                              child: _Accion(
                                 icono: AppIcons.reemplazar,
                                 etiqueta: 'Reemplazar',
-                                onTap: () => Navigator.of(context).pushNamed(AppRoutes.agregar),
+                                // Mismo documento, páginas nuevas.
+                                onTap: () => Navigator.of(context).pushNamed(AppRoutes.agregar, arguments: d),
                               ),
                             ),
                             Expanded(

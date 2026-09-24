@@ -160,7 +160,7 @@ class _DesbloqueoScreenState extends State<DesbloqueoScreen> with ToastMixin {
         padding: const EdgeInsets.fromLTRB(32, 64, 32, 40),
         child: Column(
           children: [
-            CajonMini(width: 104, abierto: abierto),
+            CajonMini(width: 124, abierto: abierto),
             const SizedBox(height: 32),
             Semantics(
               header: true,

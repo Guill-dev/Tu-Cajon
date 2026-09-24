@@ -27,6 +27,13 @@ abstract final class AppIcons {
       'M3 12a9 9 0 0 1 15.5-6.2 M5.5 19c.6-1.8 1-4.2 1-7a5.5 5.5 0 0 1 .6-2.5 M9.5 6.9A5.5 5.5 0 0 1 17.5 12c0 1 0 2-.1 3 M12 11.5c0 3-.3 6.4-1.4 9.5 M20.6 9.5c.3 1.4.4 3.4.2 6';
   static const celular = 'M8 3h8a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z M11 18h2';
   static const escudo = 'M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z M9 12l2 2 4-4';
+
+  /// Nube con una flecha hacia arriba (copia de seguridad).
+  static const nube =
+      'M7 18.5h10.5a4 4 0 0 0 .6-7.95A6 6 0 0 0 6.5 9.3 4.6 4.6 0 0 0 7 18.5z M12 15.5v-5 M9.8 12.5l2.2-2.2 2.2 2.2';
+
+  /// Llave (código de emergencia).
+  static const llave = 'M8 8.5a4 4 0 1 0 0 8a4 4 0 1 0 0-8z M12 12.5h9 M18 12.5v3 M15.5 12.5v2';
   static const sinRegistro =
       'M12 4a3.5 3.5 0 1 0 0 7a3.5 3.5 0 1 0 0-7z M5 20a7 7 0 0 1 10.5-6 M17 16l4 4 M21 16l-4 4';
   static const persona = 'M12 4a3.5 3.5 0 1 0 0 7a3.5 3.5 0 1 0 0-7z M5 20a7 7 0 0 1 14 0';

@@ -29,6 +29,8 @@ class CatalogoScreen extends StatelessWidget {
     ('10 · Guardar', AppRoutes.guardar, null),
     ('11 · Pregúntale a tu cajón', AppRoutes.preguntar, null),
     ('12 · Nuevo perfil', AppRoutes.nuevoPerfil, null),
+    ('Ajustes', AppRoutes.ajustes, null),
+    ('Recuperar mi cajón', AppRoutes.recuperar, null),
   ];
 
   @override

@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/avisos/recordatorios.dart';
 import '../../core/icons/app_icons.dart';
 import '../../core/router/app_routes.dart';
 import '../../core/seguridad/cerrojo.dart';
@@ -15,6 +16,7 @@ import '../../data/repositorio/repositorio_scope.dart';
 import '../../shared/widgets/buttons.dart';
 import '../../shared/widgets/common.dart';
 import '../../shared/widgets/dashed_border.dart';
+import '../../shared/widgets/interruptor.dart';
 import '../../shared/widgets/tc_icon.dart';
 import '../../shared/widgets/tc_tap.dart';
 import '../../shared/widgets/text_field.dart';
@@ -66,11 +68,47 @@ class PdfSubido {
   }
 }
 
-/// 10 · Guardar: el usuario revisa nombre, carpeta y si se vence.
+/// "Reemplazar": las páginas nuevas (fotos o un PDF) para un documento que
+/// ya está guardado.
+class Reemplazo {
+  const Reemplazo({required this.documento, this.fotos = const [], this.pdf});
+
+  final Documento documento;
+  final List<Uint8List> fotos;
+  final PdfSubido? pdf;
+}
+
+/// Avisos que se ven al volver al documento: van encima de sus botones de
+/// WhatsApp y compartir, para no taparlos.
+const margenAvisoEnDocumento = EdgeInsets.fromLTRB(16, 0, 16, 184);
+
+/// "Editar datos": cambiar nombre, de quién es, tipo o vencimiento de un
+/// documento, sin tocar sus páginas.
+class EditarDatos {
+  const EditarDatos(this.documento);
+
+  final Documento documento;
+}
+
+enum _Modo {
+  /// Un documento nuevo.
+  nuevo,
+
+  /// Páginas nuevas para un documento que ya existe.
+  reemplazar,
+
+  /// Solo los datos de un documento que ya existe.
+  editar,
+}
+
+/// 10 · Guardar: el usuario revisa nombre, de quién es, qué tipo de
+/// documento es y si se vence.
 ///
-/// Llega de tres lados: la cámara (la "IA" propone una cédula), la galería
-/// (fotos ya revisadas, también las que llegan por "Compartir") o un PDF
-/// subido o compartido desde otra app (se propone el nombre del archivo).
+/// Llega de la cámara, de la galería (fotos ya revisadas, también las que
+/// llegan por "Compartir") o de un PDF subido o compartido (se propone el
+/// nombre del archivo). Con [existente], los datos de ese documento vienen
+/// ya puestos: si llegan páginas nuevas, reemplazan a las suyas
+/// ("Reemplazar"); si no, solo se cambian sus datos ("Editar datos").
 class GuardarScreen extends StatefulWidget {
   const GuardarScreen({
     super.key,
@@ -78,6 +116,7 @@ class GuardarScreen extends StatefulWidget {
     this.fotos = const [],
     this.origen = OrigenFotos.camara,
     this.pdf,
+    this.existente,
   });
 
   /// Páginas que se escanearon (2 = frente y reverso).
@@ -90,31 +129,34 @@ class GuardarScreen extends StatefulWidget {
   /// Si se subió un PDF: se guarda tal cual, en vez de fotos.
   final PdfSubido? pdf;
 
+  /// El documento que ya está guardado ("Reemplazar" o "Editar datos").
+  final Documento? existente;
+
   @override
   State<GuardarScreen> createState() => _GuardarScreenState();
 }
 
 class _GuardarScreenState extends State<GuardarScreen> {
-  // Cámara: la "IA" todavía no lee el papel y propone una cédula, como en el
-  // diseño. PDF: el nombre del archivo. Galería: lo escribe la persona.
+  // Nada se adivina: todavía no hay nada que lea el papel. Un PDF propone el
+  // nombre de su archivo; al reemplazar, quedan los datos que ya tenía.
   late final _nombre = TextEditingController(
-    text: widget.pdf != null
-        ? widget.pdf!.nombreSugerido
-        : widget.origen == OrigenFotos.galeria
-        ? ''
-        : 'Cédula de ciudadanía',
+    text: widget.existente?.nombre ?? widget.pdf?.nombreSugerido ?? '',
   );
-  late Categoria _categoria = widget.pdf == null && widget.origen == OrigenFotos.camara
-      ? Categoria.identidad
-      : Categoria.otro;
-  String _perfilId = Perfil.idPropio;
-  bool _seVence = false;
+  late Categoria _categoria = widget.existente?.categoria ?? Categoria.otro;
+  late String _perfilId = widget.existente?.perfilId ?? Perfil.idPropio;
+  late bool _seVence = widget.existente?.venceEn != null;
   bool _guardando = false;
-  DateTime _fecha = DateTime.now().add(const Duration(days: 365));
+  late DateTime _fecha = widget.existente?.venceEn ?? DateTime.now().add(const Duration(days: 365));
 
   late final Stream<List<Perfil>> _perfiles = context.repo.vigilarPerfiles();
 
   String get _fechaTexto => Formato.fechaLarga(_fecha);
+
+  _Modo get _modo => widget.existente == null
+      ? _Modo.nuevo
+      : widget.fotos.isEmpty && widget.pdf == null
+      ? _Modo.editar
+      : _Modo.reemplazar;
 
   @override
   void initState() {
@@ -130,11 +172,14 @@ class _GuardarScreenState extends State<GuardarScreen> {
 
   Future<void> _elegirFecha() async {
     final hoy = DateTime.now();
+    final desde = DateTime(hoy.year - 1);
+    final hasta = DateTime(hoy.year + 20);
     final elegida = await showDatePicker(
       context: context,
       initialDate: _fecha,
-      firstDate: DateTime(hoy.year - 1),
-      lastDate: DateTime(hoy.year + 20),
+      // Un documento que ya venció hace tiempo trae una fecha más vieja.
+      firstDate: _fecha.isBefore(desde) ? _fecha : desde,
+      lastDate: _fecha.isAfter(hasta) ? _fecha : hasta,
       helpText: 'Fecha de vencimiento',
     );
     if (elegida != null) setState(() => _fecha = elegida);
@@ -145,23 +190,29 @@ class _GuardarScreenState extends State<GuardarScreen> {
     final navigator = Navigator.of(context);
     final messenger = ScaffoldMessenger.of(context);
     final cerrojo = context.cerrojo;
+    final recordatorios = context.recordatorios;
     final String id;
     final pdf = widget.pdf;
+    final existente = widget.existente;
+    final modo = _modo;
+    final datos = NuevoDocumento(
+      perfilId: _perfilId,
+      nombre: _nombre.text,
+      categoria: _categoria,
+      paginas: pdf?.paginas ?? widget.paginas,
+      // Sin fotos reales (modo simulado): tamaño aproximado de un escaneo.
+      tamanoBytes: pdf?.bytes.length ?? widget.paginas * 240 * 1024,
+      venceEn: _seVence ? _fecha : null,
+    );
     try {
-      id = await context.repo.guardarDocumento(
-        NuevoDocumento(
-          perfilId: _perfilId,
-          nombre: _nombre.text,
-          categoria: _categoria,
-          paginas: pdf?.paginas ?? widget.paginas,
-          // Sin fotos reales (modo simulado): tamaño aproximado de un escaneo.
-          tamanoBytes: pdf?.bytes.length ?? widget.paginas * 240 * 1024,
-          venceEn: _seVence ? _fecha : null,
-        ),
-        // Con fotos reales o un PDF, se guardan cifrados y el tamaño sale de ellos.
-        paginas: widget.fotos,
-        pdf: pdf?.bytes,
-      );
+      // Con fotos reales o un PDF, se guardan cifrados y el tamaño sale de ellos.
+      // Si no llegan (editar datos), las páginas del documento no se tocan.
+      if (existente != null) {
+        await context.repo.actualizarDocumento(existente.id, datos, paginas: widget.fotos, pdf: pdf?.bytes);
+        id = existente.id;
+      } else {
+        id = await context.repo.guardarDocumento(datos, paginas: widget.fotos, pdf: pdf?.bytes);
+      }
     } catch (e) {
       if (mounted) setState(() => _guardando = false);
       messenger.showSnackBar(const SnackBar(content: Text('No se pudo guardar. Inténtalo de nuevo.')));
@@ -170,6 +221,32 @@ class _GuardarScreenState extends State<GuardarScreen> {
     // Si la persona salió mientras se guardaba, espera a que abra con su
     // llave: si no, el cambio de pantalla quitaría la pantalla de la llave.
     await cerrojo.esperarAbierto();
+    // Con fecha de vencimiento, es el momento de pedir las notificaciones
+    // (solo si nunca se han pedido; si dijo que no, no se insiste).
+    if (_seVence && await recordatorios.permiso() == PermisoAvisos.sinPedir) {
+      await recordatorios.pedirPermiso();
+    }
+    if (modo == _Modo.editar) {
+      // De vuelta al documento, que ya muestra los datos nuevos.
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Listo: cambios guardados.'),
+          behavior: SnackBarBehavior.floating,
+          margin: margenAvisoEnDocumento,
+        ),
+      );
+      navigator.pop();
+      return;
+    }
+    if (modo == _Modo.reemplazar) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('Listo: «${datos.nombre.trim()}» ya tiene las páginas nuevas.'),
+          behavior: SnackBarBehavior.floating,
+          margin: margenAvisoEnDocumento,
+        ),
+      );
+    }
     // Vuelve a "Mi cajón" y abre el documento recién guardado encima.
     navigator.pushNamedAndRemoveUntil(
       AppRoutes.detalle,
@@ -178,20 +255,33 @@ class _GuardarScreenState extends State<GuardarScreen> {
     );
   }
 
-  bool get _desdeCamara => widget.pdf == null && widget.origen == OrigenFotos.camara;
-
   /// El recuadro de arriba: título y texto según de dónde viene el documento.
   (String, String) get _aviso {
+    if (widget.pdf?.aviso case final aviso?) return ('Revisa este PDF', aviso);
+    if (widget.existente case final d?) {
+      return _modo == _Modo.editar
+          ? ('Cambia lo que necesites', 'Las páginas no se tocan. Para cambiarlas, usa «Editar páginas».')
+          : (
+              'Reemplazas «${d.nombre}»',
+              'Las páginas nuevas cambian a las de antes. Si cambió la fecha de vencimiento, actualízala abajo.',
+            );
+    }
     if (widget.pdf case final pdf?) {
-      if (pdf.aviso case final aviso?) return ('Revisa este PDF', aviso);
       return pdf.recibido
           ? ('Llegó a tu cajón', 'Revisa el nombre y elige de quién es y qué tipo de documento es.')
           : ('Usamos el nombre del archivo', 'Revisa que esté bien y elige qué tipo de documento es.');
     }
-    if (widget.origen == OrigenFotos.galeria) {
-      return ('Ponle un nombre', 'Así lo encuentras rápido cuando lo busques.');
-    }
-    return ('Parece una cédula de ciudadanía', 'La IA llenó los datos por ti. Revisa que estén bien.');
+    return ('Ponle un nombre', 'Así lo encuentras rápido cuando lo busques.');
+  }
+
+  /// Vuelve a la cámara o a las páginas de la galería sin perder las fotos
+  /// que ya hay. Al reemplazar no aplica: las páginas ya se revisaron.
+  VoidCallback? get _otraPagina {
+    if (widget.existente != null) return null;
+    return () => widget.origen == OrigenFotos.galeria
+        ? Navigator.of(context)
+              .pushReplacementNamed(AppRoutes.paginas, arguments: EntradaPaginas(listas: widget.fotos))
+        : Navigator.of(context).pushReplacementNamed(AppRoutes.escanear, arguments: widget.fotos);
   }
 
   @override
@@ -203,7 +293,13 @@ class _GuardarScreenState extends State<GuardarScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const BackHeader(title: 'Guardar documento'),
+            BackHeader(
+              title: switch (_modo) {
+                _Modo.nuevo => 'Guardar documento',
+                _Modo.reemplazar => 'Reemplazar documento',
+                _Modo.editar => 'Editar datos',
+              },
+            ),
             Expanded(
               child: NoScrollbar(
                 child: ListView(
@@ -211,21 +307,9 @@ class _GuardarScreenState extends State<GuardarScreen> {
                   children: [
                     if (widget.pdf case final pdf?)
                       _PdfSubido(pdf: pdf)
-                    else
-                      _Paginas(
-                        paginas: widget.paginas,
-                        fotos: widget.fotos,
-                        // Vuelve a la cámara o a las páginas de la galería sin
-                        // perder las fotos que ya hay.
-                        onOtra: () => widget.origen == OrigenFotos.galeria
-                            ? Navigator.of(context).pushReplacementNamed(
-                                AppRoutes.paginas,
-                                arguments: EntradaPaginas(listas: widget.fotos),
-                              )
-                            : Navigator.of(context)
-                                  .pushReplacementNamed(AppRoutes.escanear, arguments: widget.fotos),
-                      ),
-                    const SizedBox(height: 18),
+                    else if (_modo != _Modo.editar)
+                      _Paginas(paginas: widget.paginas, fotos: widget.fotos, onOtra: _otraPagina),
+                    if (_modo != _Modo.editar) const SizedBox(height: 18),
                     Container(
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
@@ -238,7 +322,7 @@ class _GuardarScreenState extends State<GuardarScreen> {
                           Padding(
                             padding: const EdgeInsets.only(top: 1),
                             child: TcIcon(
-                              _desdeCamara ? AppIcons.destello : AppIcons.lapiz,
+                              _modo == _Modo.reemplazar ? AppIcons.reemplazar : AppIcons.lapiz,
                               size: 22,
                               color: AppColors.primario,
                             ),
@@ -287,7 +371,11 @@ class _GuardarScreenState extends State<GuardarScreen> {
                       spacing: 8,
                       runSpacing: 8,
                       children: [
-                        for (final c in Categoria.alGuardar)
+                        // Al reemplazar, también la que ya tenía aunque no se ofrezca al guardar.
+                        for (final c in [
+                          ...Categoria.alGuardar,
+                          if (!Categoria.alGuardar.contains(_categoria)) _categoria,
+                        ])
                           PillChip(
                             label: c.etiqueta,
                             selected: c == _categoria,
@@ -310,7 +398,11 @@ class _GuardarScreenState extends State<GuardarScreen> {
               children: [
                 const PrivacyNote('Se guarda cifrado, solo en este celular'),
                 PrimaryButton(
-                  label: 'Guardar en mi cajón',
+                  label: switch (_modo) {
+                    _Modo.nuevo => 'Guardar en mi cajón',
+                    _Modo.reemplazar => 'Reemplazar documento',
+                    _Modo.editar => 'Guardar cambios',
+                  },
                   icon: AppIcons.cajon,
                   disabledLabel: _guardando ? 'Guardando…' : 'Escribe un nombre para guardar',
                   onTap: _guardando || _nombre.text.trim().isEmpty ? null : _guardar,
@@ -329,7 +421,9 @@ class _Paginas extends StatelessWidget {
 
   final int paginas;
   final List<Uint8List> fotos;
-  final VoidCallback onOtra;
+
+  /// "Otra página"; sin él, no se ofrece.
+  final VoidCallback? onOtra;
 
   @override
   Widget build(BuildContext context) {
@@ -369,28 +463,29 @@ class _Paginas extends StatelessWidget {
       runSpacing: 10,
       children: [
         for (var i = 0; i < etiquetas.length; i++) pagina(etiquetas[i], i < fotos.length ? fotos[i] : null),
-        Semantics(
-          button: true,
-          label: 'Agregar otra página',
-          excludeSemantics: true,
-          child: GestureDetector(
-            onTap: onOtra,
-            child: DashedBorder(
-              width: 96,
-              height: 124,
-              radius: 20,
-              color: AppColors.bordePunteado,
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                spacing: 6,
-                children: [
-                  const TcIcon(AppIcons.mas, size: 24, color: AppColors.textoSecundario),
-                  Text('Otra página', style: AppText.bold(13, color: AppColors.textoSecundario)),
-                ],
+        if (onOtra case final onOtra?)
+          Semantics(
+            button: true,
+            label: 'Agregar otra página',
+            excludeSemantics: true,
+            child: GestureDetector(
+              onTap: onOtra,
+              child: DashedBorder(
+                width: 96,
+                height: 124,
+                radius: 20,
+                color: AppColors.bordePunteado,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  spacing: 6,
+                  children: [
+                    const TcIcon(AppIcons.mas, size: 24, color: AppColors.textoSecundario),
+                    Text('Otra página', style: AppText.bold(13, color: AppColors.textoSecundario)),
+                  ],
+                ),
               ),
             ),
           ),
-        ),
       ],
     );
   }
@@ -484,7 +579,7 @@ class _Vencimiento extends StatelessWidget {
                   const SizedBox(width: 10),
                   Expanded(child: Text('¿Este documento se vence?', style: AppText.bold(16))),
                   const SizedBox(width: 12),
-                  _Interruptor(activo: activo),
+                  Interruptor(activo: activo),
                 ],
               ),
             ),
@@ -519,7 +614,7 @@ class _Vencimiento extends StatelessWidget {
                           ),
                         ),
                         Text(
-                          'Te avisaremos antes y la IA te dirá qué necesitas para renovarlo.',
+                          'Te avisamos con una notificación 30 días y 7 días antes, y el mismo día.',
                           style: AppText.secondary(14, height: 1.4),
                         ),
                       ],
@@ -528,40 +623,6 @@ class _Vencimiento extends StatelessWidget {
                 : const SizedBox(width: double.infinity),
           ),
         ],
-      ),
-    );
-  }
-}
-
-/// Interruptor redondo del diseño (52×32, perilla que se desliza en 0.15 s).
-class _Interruptor extends StatelessWidget {
-  const _Interruptor({required this.activo});
-
-  final bool activo;
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 150),
-      width: 52,
-      height: 32,
-      decoration: BoxDecoration(
-        color: activo ? AppColors.primario : AppColors.switchApagado,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: AnimatedAlign(
-        duration: const Duration(milliseconds: 150),
-        alignment: activo ? Alignment.centerRight : Alignment.centerLeft,
-        child: Container(
-          margin: const EdgeInsets.all(3),
-          width: 26,
-          height: 26,
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            shape: BoxShape.circle,
-            boxShadow: [BoxShadow(color: Color(0x40000000), blurRadius: 3, offset: Offset(0, 1))],
-          ),
-        ),
       ),
     );
   }

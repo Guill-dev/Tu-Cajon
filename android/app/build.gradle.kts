@@ -12,6 +12,8 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        // Lo pide flutter_local_notifications para programar avisos en Android viejos.
+        isCoreLibraryDesugaringEnabled = true
     }
 
     defaultConfig {
@@ -51,4 +53,7 @@ flutter {
 dependencies {
     // FileProvider: entrega el PDF a WhatsApp (ver ArchivosCompartidos.kt).
     implementation("androidx.core:core:1.16.0")
+    // Block Store: la llave de la copia de seguridad llega sola al celular nuevo (ver CopiaDeSeguridad.kt).
+    implementation("com.google.android.gms:play-services-auth-blockstore:16.4.0")
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }

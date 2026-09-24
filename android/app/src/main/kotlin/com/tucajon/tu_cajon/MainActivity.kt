@@ -34,6 +34,8 @@ class MainActivity : FlutterFragmentActivity() {
         recibidos.registrar(flutterEngine.dartExecutor.binaryMessenger)
         // Lector de los PDF que se suben (ver LectorPdf.kt).
         LectorPdf(applicationContext).registrar(flutterEngine.dartExecutor.binaryMessenger)
+        // La llave de la copia de seguridad y el Wi-Fi (ver CopiaDeSeguridad.kt).
+        CopiaDeSeguridad(applicationContext).registrar(flutterEngine.dartExecutor.binaryMessenger)
         // Canal con lib/core/compartir/compartidor.dart.
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "tu_cajon/compartir")
             .setMethodCallHandler { llamada, respuesta ->

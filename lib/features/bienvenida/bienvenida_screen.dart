@@ -9,6 +9,7 @@ import '../../shared/illustrations/lapiz_mascota.dart';
 import '../../shared/widgets/buttons.dart';
 import '../../shared/widgets/common.dart';
 import '../../shared/widgets/tc_icon.dart';
+import '../../shared/widgets/tc_tap.dart';
 import '../../shared/widgets/text_field.dart';
 
 /// 2 · Bienvenida: el lápiz saluda y pregunta cómo llamarte.
@@ -111,6 +112,26 @@ class _BienvenidaScreenState extends State<BienvenidaScreen> {
                 'Sin registro. Solo tu nombre, y se queda en tu celular.',
                 center: false,
                 size: 15,
+              ),
+              const SizedBox(height: 8),
+              // Quien estrena celular trae su cajón de la copia en Google Drive.
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TcTap(
+                  onTap: () => Navigator.of(context).pushNamed(AppRoutes.recuperar),
+                  minHeight: 48,
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: Center(
+                    widthFactor: 1,
+                    child: Text(
+                      '¿Ya tenías Tu Cajón en otro celular? Recupéralo',
+                      style: AppText.bold(
+                        15,
+                        color: AppColors.primario,
+                      ).copyWith(decoration: TextDecoration.underline, decorationColor: AppColors.primario),
+                    ),
+                  ),
+                ),
               ),
               const Spacer(),
               const SizedBox(height: 24),

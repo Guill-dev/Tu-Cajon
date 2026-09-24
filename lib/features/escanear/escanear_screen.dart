@@ -48,10 +48,14 @@ enum _Camara {
 /// Las fotos solo viven en memoria hasta que se guardan cifradas; la copia
 /// temporal que deja la cámara se borra apenas se lee.
 class EscanearScreen extends StatefulWidget {
-  const EscanearScreen({super.key, this.paginasPrevias = const []});
+  const EscanearScreen({super.key, this.paginasPrevias = const [], this.devolver = false});
 
   /// Páginas que ya se habían tomado (al tocar "Otra página" en Guardar).
   final List<Uint8List> paginasPrevias;
+
+  /// "Reemplazar": al terminar devuelve las fotos a quien lo abrió, en vez
+  /// de ir a Guardar.
+  final bool devolver;
 
   @override
   State<EscanearScreen> createState() => _EscanearScreenState();
@@ -370,7 +374,14 @@ class _EscanearScreenState extends State<EscanearScreen>
     );
   }
 
+  /// Sin cámara: de vuelta a "Agregar", para subir un PDF o elegir fotos.
+  void _volverAAgregar() => Navigator.of(context).pop();
+
   void _terminar() {
+    if (widget.devolver) {
+      Navigator.of(context).pop(<Uint8List>[for (final p in _fotos) p.foto]);
+      return;
+    }
     Navigator.of(context).pushReplacementNamed(
       AppRoutes.guardar,
       arguments: _estado == _Camara.simulada ? _simuladas : [for (final p in _fotos) p.foto],
@@ -672,7 +683,7 @@ class _EscanearScreenState extends State<EscanearScreen>
             texto: 'La usamos solo para fotografiar tus documentos. Las fotos se guardan cifradas en este celular y no se suben a internet.',
             boton: 'Permitir la cámara',
             onBoton: () => _iniciar(pedir: true),
-            onSubir: () => Navigator.of(context).pushReplacementNamed(AppRoutes.guardar),
+            onSubir: _volverAAgregar,
           ),
         ];
       case _Camara.bloqueado:
@@ -682,7 +693,7 @@ class _EscanearScreenState extends State<EscanearScreen>
             texto: 'Para escanear, entra a Ajustes › Permisos › Cámara y elige "Permitir solo mientras se usa la app".',
             boton: 'Abrir Ajustes',
             onBoton: openAppSettings,
-            onSubir: () => Navigator.of(context).pushReplacementNamed(AppRoutes.guardar),
+            onSubir: _volverAAgregar,
           ),
         ];
       case _Camara.error:
@@ -692,7 +703,7 @@ class _EscanearScreenState extends State<EscanearScreen>
             texto: _detalleError,
             boton: 'Intentar de nuevo',
             onBoton: () => _iniciar(pedir: false),
-            onSubir: () => Navigator.of(context).pushReplacementNamed(AppRoutes.guardar),
+            onSubir: _volverAAgregar,
           ),
         ];
     }
@@ -848,7 +859,11 @@ class _AvisoCamara extends StatelessWidget {
             radius: 16,
             minHeight: 48,
             child: Center(
-              child: Text('Mejor subir un archivo', style: AppText.bold(15, color: AppColors.camaraMarco)),
+              child: Text(
+                'Mejor subir un PDF o una foto',
+                textAlign: TextAlign.center,
+                style: AppText.bold(15, color: AppColors.camaraMarco),
+              ),
             ),
           ),
         ],

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../../core/archivos/buzon.dart';
 import '../../data/models/documento.dart';
 import '../../features/agregar/agregar_screen.dart';
+import '../../features/ajustes/ajustes_screen.dart';
 import '../../features/bienvenida/bienvenida_screen.dart';
 import '../../features/cajon/cajon_shell.dart';
 import '../../features/carga/carga_screen.dart';
@@ -17,6 +18,7 @@ import '../../features/perfil/agregar_perfil_screen.dart';
 import '../../features/preguntar/preguntar_screen.dart';
 import '../../features/proteccion/proteccion_screen.dart';
 import '../../features/recibir/recibir_screen.dart';
+import '../../features/recuperar/recuperar_screen.dart';
 
 /// Nombres de todas las rutas. El comentario dice qué artboard del diseño es.
 abstract final class AppRoutes {
@@ -33,6 +35,8 @@ abstract final class AppRoutes {
   static const guardar = '/guardar'; // 10 · Guardar
   static const preguntar = '/preguntar'; // 11 · Pregúntale a tu cajón
   static const nuevoPerfil = '/perfil/nuevo'; // 12 · Nuevo perfil
+  static const ajustes = '/ajustes'; // Ajustes (copia de seguridad)
+  static const recuperar = '/recuperar'; // Recuperar mi cajón (celular nuevo)
   static const catalogo = '/_pantallas'; // Solo desarrollo: lista de pantallas
 
   static Route<dynamic> onGenerateRoute(RouteSettings settings) {
@@ -45,9 +49,14 @@ abstract final class AppRoutes {
       cajon => CajonShell(pestanaInicial: args is CajonTab ? args : CajonTab.inicio),
       // Documento: recibe el id (o el Documento). Sin argumento, abre el primero.
       detalle => DetalleScreen(documentoId: args is Documento ? args.id : (args is String ? args : null)),
-      agregar => const AgregarScreen(),
-      // Escanear: puede recibir las fotos ya tomadas ("Otra página").
-      escanear => EscanearScreen(paginasPrevias: args is List<Uint8List> ? args : const []),
+      // Agregar: con un Documento, es para reemplazar sus páginas.
+      agregar => AgregarScreen(reemplaza: args is Documento ? args : null),
+      // Escanear: puede recibir las fotos ya tomadas ("Otra página"), o
+      // `true` para solo devolver las fotos ("Reemplazar").
+      escanear => EscanearScreen(
+        paginasPrevias: args is List<Uint8List> ? args : const [],
+        devolver: args == true,
+      ),
       // Tus páginas: fotos elegidas en la galería.
       paginas => PaginasScreen(entrada: args is EntradaPaginas ? args : const EntradaPaginas()),
       // Recibir: lo que se está leyendo del buzón.
@@ -55,6 +64,14 @@ abstract final class AppRoutes {
       // Guardar: un PDF subido, fotos de la galería o de la cámara, o cuántas
       // páginas simuladas hubo.
       guardar => switch (args) {
+        EditarDatos(:final documento) => GuardarScreen(existente: documento),
+        Reemplazo(:final documento, :final fotos, :final pdf) => GuardarScreen(
+          existente: documento,
+          fotos: fotos,
+          paginas: pdf?.paginas ?? fotos.length,
+          pdf: pdf,
+          origen: OrigenFotos.galeria,
+        ),
         PdfSubido pdf => GuardarScreen(pdf: pdf),
         FotosDeGaleria(:final fotos) => GuardarScreen(
           fotos: fotos,
@@ -67,6 +84,8 @@ abstract final class AppRoutes {
       },
       preguntar => const PreguntarScreen(),
       nuevoPerfil => const AgregarPerfilScreen(),
+      ajustes => const AjustesScreen(),
+      recuperar => const RecuperarScreen(),
       catalogo => const CatalogoScreen(),
       _ => const CargaScreen(),
     };

@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 import 'dart:ui';
 
+import '../models/contenido_cajon.dart';
 import '../models/documento.dart';
 import '../models/perfil.dart';
 
@@ -55,6 +56,17 @@ abstract interface class CajonRepositorio {
   /// El PDF subido, ya descifrado (`null` si el documento son fotos).
   Future<Uint8List?> leerPdf(Documento documento);
 
+  /// Cambia los datos del documento [id] por los de [datos] (nombre, perfil,
+  /// carpeta y vencimiento). Si llegan [paginas] o un [pdf], reemplazan a los
+  /// archivos que tenía: primero se guardan los nuevos y después se borran
+  /// los viejos, y el documento cuenta como guardado hoy.
+  Future<void> actualizarDocumento(
+    String id,
+    NuevoDocumento datos, {
+    List<Uint8List> paginas = const [],
+    Uint8List? pdf,
+  });
+
   Future<void> renombrarDocumento(String id, String nombre);
   Future<void> eliminarDocumento(String id);
 
@@ -63,6 +75,28 @@ abstract interface class CajonRepositorio {
   /// Claves de las sugerencias que el usuario ya descartó.
   Stream<Set<String>> vigilarSugerenciasDescartadas();
   Future<void> descartarSugerencia(String clave);
+
+  // ── Copia de seguridad ─────────────────────────────────────────────────
+
+  /// Lo que va en la copia de seguridad. Los archivos no: se leen aparte,
+  /// uno por uno, con [leerPaginas] y [leerPdf].
+  Future<ContenidoCajon> leerContenido();
+
+  /// Cambia todo el cajón por el de una copia. [archivosDe] trae los
+  /// archivos de cada documento que los tenga (`archivo != null`).
+  ///
+  /// Todo o nada: si algo falla a mitad, el cajón queda como estaba. No toca
+  /// la llave del cajón ni los ajustes de la copia.
+  Future<void> restaurar(
+    ContenidoCajon contenido, {
+    required Future<ArchivosDocumento> Function(Documento documento) archivosDe,
+  });
+
+  /// Ajustes sueltos, como los de la copia de seguridad. `null` = no está.
+  Future<String?> leerAjuste(String clave);
+
+  /// Con [valor] `null`, se borra.
+  Future<void> guardarAjuste(String clave, String? valor);
 
   // ── Desarrollo ─────────────────────────────────────────────────────────
 

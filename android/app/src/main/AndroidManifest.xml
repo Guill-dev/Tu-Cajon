@@ -5,6 +5,12 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <!-- La llave del cajón: huella, rostro o PIN del celular. -->
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+    <!-- Avisos de vencimiento: mostrarlos, y volver a programarlos si el
+         celular se reinicia. Sin alarmas exactas: basta con "hacia las 9". -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Copia de seguridad: saber si hay Wi-Fi, para no gastar los datos del plan. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <!-- El plugin de cámara también pide micrófono y almacenamiento; Tu Cajón no los usa,
          así que se quitan del permiso final de la app. -->
@@ -66,6 +72,17 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/archivos_compartidos" />
         </provider>
+        <!-- Muestran los avisos programados y los reprograman al reiniciar
+             (flutter_local_notifications; ver lib/core/avisos/). -->
+        <receiver android:exported="false" android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver" />
+        <receiver android:exported="false" android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="com.htc.intent.action.QUICKBOOT_POWERON"/>
+            </intent-filter>
+        </receiver>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

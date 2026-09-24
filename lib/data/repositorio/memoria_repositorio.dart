@@ -5,6 +5,7 @@ import 'dart:ui';
 import '../../core/formato.dart';
 import '../archivos/almacen_archivos.dart';
 import '../datos_ejemplo.dart';
+import '../models/contenido_cajon.dart';
 import '../models/documento.dart';
 import '../models/perfil.dart';
 import 'cajon_repositorio.dart';
@@ -182,6 +183,37 @@ class MemoriaCajonRepositorio implements CajonRepositorio {
       documento.archivo == null ? null : _archivos.leerPdf(documento.archivo!);
 
   @override
+  Future<void> actualizarDocumento(
+    String id,
+    NuevoDocumento n, {
+    List<Uint8List> paginas = const [],
+    Uint8List? pdf,
+  }) async {
+    final i = _documentos.indexWhere((d) => d.id == id);
+    if (i < 0) throw StateError('No existe el documento $id');
+    final anterior = _documentos[i];
+    final archivo = pdf != null
+        ? await _archivos.guardarPdf(pdf, paginas: n.paginas)
+        : paginas.isEmpty
+        ? null
+        : await _archivos.guardarPaginas(paginas);
+    _documentos[i] = Documento(
+      id: id,
+      perfilId: n.perfilId,
+      nombre: n.nombre.trim(),
+      categoria: n.categoria,
+      guardadoEn: archivo == null ? anterior.guardadoEn : DateTime.now(),
+      paginas: archivo?.paginas ?? anterior.paginas,
+      tamanoBytes: archivo?.bytes ?? anterior.tamanoBytes,
+      venceEn: n.venceEn,
+      archivo: archivo?.ruta ?? anterior.archivo,
+      textoExtraido: archivo == null ? anterior.textoExtraido : '',
+    );
+    if (archivo != null && anterior.archivo != null) await _archivos.borrar(anterior.archivo!);
+    _avisar();
+  }
+
+  @override
   Future<void> renombrarDocumento(String id, String nombre) async {
     final i = _documentos.indexWhere((d) => d.id == id);
     if (i < 0) return;
@@ -207,6 +239,81 @@ class MemoriaCajonRepositorio implements CajonRepositorio {
     _descartadas.add(clave);
     _avisar();
   }
+
+  // ── Copia de seguridad ─────────────────────────────────────────────────
+
+  final Map<String, String> _ajustes = {};
+
+  @override
+  Future<ContenidoCajon> leerContenido() async => ContenidoCajon(
+    nombre: _nombre,
+    perfiles: List.of(_perfiles),
+    documentos: List.of(_documentos),
+    descartadas: {..._descartadas},
+  );
+
+  @override
+  Future<void> restaurar(
+    ContenidoCajon c, {
+    required Future<ArchivosDocumento> Function(Documento documento) archivosDe,
+  }) async {
+    final nuevos = <String, String>{};
+    try {
+      for (final d in c.documentos) {
+        if (d.archivo == null) continue;
+        final a = await archivosDe(d);
+        final guardado = a.pdf != null
+            ? await _archivos.guardarPdf(a.pdf!, paginas: d.paginas)
+            : a.paginas.isEmpty
+            ? null
+            : await _archivos.guardarPaginas(a.paginas);
+        if (guardado != null) nuevos[d.id] = guardado.ruta;
+      }
+    } catch (_) {
+      for (final ruta in nuevos.values) {
+        await _archivos.borrar(ruta);
+      }
+      rethrow;
+    }
+    final antes = _documentos.map((d) => d.archivo).nonNulls.toList();
+    _nombre = c.nombre;
+    _perfiles
+      ..clear()
+      ..addAll(c.perfiles);
+    _documentos
+      ..clear()
+      ..addAll([
+        for (final d in c.documentos)
+          Documento(
+            id: d.id,
+            perfilId: d.perfilId,
+            nombre: d.nombre,
+            categoria: d.categoria,
+            guardadoEn: d.guardadoEn,
+            paginas: d.paginas,
+            tamanoBytes: d.tamanoBytes,
+            venceEn: d.venceEn,
+            archivo: nuevos[d.id],
+            textoExtraido: d.textoExtraido,
+          ),
+      ]);
+    _descartadas
+      ..clear()
+      ..addAll(c.descartadas);
+    for (final ruta in antes) {
+      await _archivos.borrar(ruta);
+    }
+    _avisar();
+  }
+
+  @override
+  Future<String?> leerAjuste(String clave) async => _ajustes[clave];
+
+  @override
+  Future<void> guardarAjuste(String clave, String? valor) async =>
+      valor == null ? _ajustes.remove(clave) : _ajustes[clave] = valor;
+
+  // ── Desarrollo ─────────────────────────────────────────────────────────
 
   @override
   Future<void> restablecerEjemplo() async {

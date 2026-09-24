@@ -6,15 +6,16 @@ import '../router/app_routes.dart';
 import '../seguridad/cerrojo.dart';
 import 'buzon.dart';
 
-/// Lleva lo que llega por "Compartir → Tu Cajón" a la pantalla de recibir,
-/// pero solo con la persona ya dentro de su cajón:
+/// Lleva lo que llega desde afuera a su pantalla: lo compartido con
+/// "Compartir → Tu Cajón" a la de recibir, y el documento de un aviso que se
+/// tocó a su detalle. Pero solo con la persona ya dentro de su cajón:
 ///
 /// - si el cajón está cerrado, primero tiene que abrirlo con su llave;
 /// - si la app apenas arranca (carga, desbloqueo) o todavía no termina la
 ///   bienvenida, espera a que entre a "Mi cajón".
 ///
-/// Así lo compartido nunca se ve sin la llave, y nada de lo que llega se
-/// pone encima de la pantalla de la llave.
+/// Así nada se ve sin la llave, y nada de lo que llega se pone encima de la
+/// pantalla de la llave.
 class Recepcion {
   Recepcion({required this.buzon, required this.navegador, required this.cerrojo}) {
     rutas.addListener(_programar);
@@ -45,11 +46,23 @@ class Recepcion {
   bool _pendiente = false;
   bool _esperandoLlave = false;
 
+  /// Documentos por abrir (se tocó su aviso).
+  final _porAbrir = <String>[];
+
+  /// Hay algo esperando la llave: lo compartido o un aviso que se tocó.
+  bool get hayAlgoPorAbrir => _pendiente || _porAbrir.isNotEmpty;
+
+  /// Abre el documento [id] en cuanto la persona esté dentro de su cajón.
+  void abrirDocumento(String id) {
+    _porAbrir.add(id);
+    _programar();
+  }
+
   // Los avisos llegan en medio de un cambio de pantalla; se atienden después.
   void _programar() => scheduleMicrotask(_intentar);
 
   void _intentar() {
-    if (!_pendiente) return;
+    if (!_pendiente && _porAbrir.isEmpty) return;
     if (cerrojo.cerrado) {
       if (!_esperandoLlave) {
         _esperandoLlave = true;
@@ -64,8 +77,14 @@ class Recepcion {
     if (!rutas.contiene(AppRoutes.cajon)) return;
     final nav = navegador.currentState;
     if (nav == null) return;
-    _pendiente = false;
-    nav.pushNamed(AppRoutes.recibir, arguments: buzon.tomar());
+    for (final id in _porAbrir) {
+      nav.pushNamed(AppRoutes.detalle, arguments: id);
+    }
+    _porAbrir.clear();
+    if (_pendiente) {
+      _pendiente = false;
+      nav.pushNamed(AppRoutes.recibir, arguments: buzon.tomar());
+    }
   }
 
   void dispose() {

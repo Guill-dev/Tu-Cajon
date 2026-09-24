@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
+import '../../core/avisos/recordatorios.dart';
 import '../../core/formato.dart';
 import '../../core/icons/app_icons.dart';
 import '../../core/router/app_routes.dart';
+import '../../core/seguridad/cerrojo.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_decor.dart';
 import '../../core/theme/app_text.dart';
@@ -14,6 +16,7 @@ import '../../shared/widgets/common.dart';
 import '../../shared/widgets/tc_icon.dart';
 import '../../shared/widgets/tc_tap.dart';
 import '../../shared/widgets/toast.dart';
+import 'avisos_programados.dart';
 import 'sugerencias.dart';
 
 /// 7 · Avisos: documentos por vencer (de las fechas guardadas) y sugerencias
@@ -33,6 +36,9 @@ class _AvisosScreenState extends State<AvisosScreen> with ToastMixin {
 
   void _agregar() => Navigator.of(context).pushNamed(AppRoutes.agregar);
 
+  /// Las páginas nuevas van al mismo documento (si la sugerencia tiene uno).
+  void _reemplazar(Documento? d) => Navigator.of(context).pushNamed(AppRoutes.agregar, arguments: d);
+
   void _abrir(Documento d) => Navigator.of(context).pushNamed(AppRoutes.detalle, arguments: d.id);
 
   Future<void> _descartar(Sugerencia s, {String? mensaje}) async {
@@ -43,6 +49,31 @@ class _AvisosScreenState extends State<AvisosScreen> with ToastMixin {
   static DateTime _proximoLunes(DateTime hoy) {
     final dias = (DateTime.monday - hoy.weekday + 7) % 7;
     return hoy.add(Duration(days: dias == 0 ? 7 : dias));
+  }
+
+  /// Programa una notificación el próximo lunes a las 9 (pide el permiso si
+  /// hace falta).
+  Future<void> _recordarElLunes(Documento d, DateTime hoy) async {
+    final recordatorios = context.recordatorios;
+    final repo = context.repo;
+    final permitido =
+        await recordatorios.permiso() == PermisoAvisos.permitido || await recordatorios.pedirPermiso();
+    if (!mounted) return;
+    if (!permitido) {
+      showToast(
+        'Para recordártelo, permite las notificaciones de Tu Cajón.',
+        duration: const Duration(milliseconds: 3200),
+      );
+      return;
+    }
+    final perfiles = {for (final p in await repo.vigilarPerfiles().first) p.id: p};
+    final lunes = _proximoLunes(hoy);
+    await recordatorios.programarRecordatorio(avisoDeRenovar(d, perfiles, lunes));
+    if (!mounted) return;
+    showToast(
+      'Listo. Te lo recordamos el lunes ${Formato.diaMes(lunes)} a las 9 de la mañana.',
+      duration: const Duration(milliseconds: 3200),
+    );
   }
 
   @override
@@ -117,18 +148,7 @@ class _AvisosScreenState extends State<AvisosScreen> with ToastMixin {
                           ),
                           const SizedBox(height: 12),
                         ],
-                        Row(
-                          children: [
-                            const TcIcon(AppIcons.reloj, size: 16, color: AppColors.textoSecundario),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                'Te avisamos 30 días y 7 días antes de cada fecha.',
-                                style: AppText.secondary(14),
-                              ),
-                            ),
-                          ],
-                        ),
+                        const _EstadoNotificaciones(),
                         const SizedBox(height: 24),
                         const Row(
                           children: [
@@ -208,17 +228,11 @@ class _AvisosScreenState extends State<AvisosScreen> with ToastMixin {
     final color = d?.categoria.color ?? AppColors.primario;
     final List<Widget> acciones = switch (s.tipo) {
       TipoSugerencia.vencido => [
-        SmallButton(label: 'Escanear el nuevo', onTap: _agregar),
+        SmallButton(label: 'Guardar el nuevo', onTap: () => _reemplazar(d)),
         SmallButton(label: 'Ya lo hice', filled: false, onTap: () => _descartar(s)),
       ],
       TipoSugerencia.renovar => [
-        SmallButton(
-          label: 'Recordarme el lunes',
-          onTap: () => showToast(
-            'Listo. Te lo recordamos el lunes ${Formato.diaMes(_proximoLunes(hoy))}.',
-            duration: const Duration(milliseconds: 2800),
-          ),
-        ),
+        SmallButton(label: 'Recordarme el lunes', onTap: () => _recordarElLunes(d!, hoy)),
         SmallButton(
           label: 'Ya lo hice',
           filled: false,
@@ -226,7 +240,7 @@ class _AvisosScreenState extends State<AvisosScreen> with ToastMixin {
         ),
       ],
       TipoSugerencia.actualizar => [
-        SmallButton(label: 'Reemplazar documento', onTap: _agregar),
+        SmallButton(label: 'Reemplazar documento', onTap: () => _reemplazar(d)),
         SmallButton(label: 'Descartar', filled: false, onTap: () => _descartar(s)),
       ],
       TipoSugerencia.agregar => [
@@ -255,6 +269,109 @@ class _Titulo extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(top: 4),
       child: Semantics(header: true, child: Text(texto, style: AppText.bold(18))),
+    );
+  }
+}
+
+/// Debajo de "Por vencer": cuándo llegan los avisos o, si las notificaciones
+/// no están permitidas, cómo activarlas.
+class _EstadoNotificaciones extends StatefulWidget {
+  const _EstadoNotificaciones();
+
+  @override
+  State<_EstadoNotificaciones> createState() => _EstadoNotificacionesState();
+}
+
+class _EstadoNotificacionesState extends State<_EstadoNotificaciones> {
+  PermisoAvisos? _permiso;
+
+  /// Al volver de los ajustes del celular, se revisa otra vez.
+  late final AppLifecycleListener _oyente;
+
+  @override
+  void initState() {
+    super.initState();
+    _oyente = AppLifecycleListener(onResume: _revisar);
+    _revisar();
+  }
+
+  @override
+  void dispose() {
+    _oyente.dispose();
+    super.dispose();
+  }
+
+  Future<void> _revisar() async {
+    final permiso = await context.recordatorios.permiso();
+    if (mounted) setState(() => _permiso = permiso);
+  }
+
+  Future<void> _activar() async {
+    final recordatorios = context.recordatorios;
+    if (_permiso == PermisoAvisos.bloqueado) {
+      // Va a los ajustes del celular: si vuelve pronto, el cajón sigue abierto.
+      context.cerrojo.permitirSalida();
+      await recordatorios.abrirAjustes();
+      return;
+    }
+    await recordatorios.pedirPermiso();
+    await _revisar();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final permiso = _permiso;
+    if (permiso == null) return const SizedBox.shrink();
+    if (permiso == PermisoAvisos.permitido) {
+      return Row(
+        children: [
+          const TcIcon(AppIcons.reloj, size: 16, color: AppColors.textoSecundario),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Te avisamos 30 días y 7 días antes, y el mismo día, a las 9 de la mañana.',
+              style: AppText.secondary(14, height: 1.4),
+            ),
+          ),
+        ],
+      );
+    }
+    final bloqueado = permiso == PermisoAvisos.bloqueado;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.ambarSuave,
+        borderRadius: BorderRadius.circular(AppDecor.radioTarjeta),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        spacing: 12,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const TcIcon(AppIcons.campana, size: 24, color: AppColors.ambar),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  spacing: 4,
+                  children: [
+                    Text('Activa las notificaciones', style: AppText.bold(16, color: AppColors.ambar)),
+                    Text(
+                      bloqueado
+                          ? 'Están apagadas para Tu Cajón. Actívalas en los ajustes del celular para que te avisemos antes de que algo venza.'
+                          : 'Así te avisamos 30 días y 7 días antes de que algo venza, aunque no abras la app.',
+                      style: AppText.body(14, color: AppColors.ambar, height: 1.4),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          SmallButton(label: bloqueado ? 'Abrir ajustes' : 'Activar', onTap: _activar),
+        ],
+      ),
     );
   }
 }

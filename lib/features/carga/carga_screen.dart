@@ -71,10 +71,12 @@ class _CargaScreenState extends State<CargaScreen> {
     final recepcion = context.recepcion;
     try {
       final registrado = await context.repo.llaveActivada();
-      // Si se abrió desde "Compartir → Tu Cajón", la persona viene a guardar
-      // algo: la carga es corta y pasa rápido a la llave.
+      // Si se abrió desde "Compartir → Tu Cajón" o desde un aviso, la persona
+      // viene a algo: la carga es corta y pasa rápido a la llave.
       final llegoAlgo =
-          registrado && await recepcion.revisado.timeout(const Duration(seconds: 1), onTimeout: () => false);
+          registrado &&
+          (await recepcion.revisado.timeout(const Duration(seconds: 1), onTimeout: () => false) ||
+              recepcion.hayAlgoPorAbrir);
       if (!mounted) return;
       setState(() => _modo = registrado ? _Modo.carga : _Modo.bienvenida);
       if (registrado) {
@@ -220,7 +222,7 @@ class _Ilustracion extends StatelessWidget {
               decoration: const BoxDecoration(color: AppColors.primarioSuave, shape: BoxShape.circle),
             ),
           ),
-          const CajonAnimado(width: 230),
+          const CajonAnimado(width: 250),
         ],
       ),
     );

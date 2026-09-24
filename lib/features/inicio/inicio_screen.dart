@@ -25,11 +25,18 @@ import 'widgets/tarjeta_documento.dart';
 ///
 /// Todo sale de la base de datos con `Stream`s: si guardas, renombras o
 /// borras un documento en otra pantalla, esta se actualiza sola.
+///
+/// Al tocar el buscador entra en "modo búsqueda": se esconden el saludo y los
+/// perfiles para que debajo quede la lista de documentos, que se va filtrando
+/// mientras escribes. "Cancelar" o el botón atrás vuelven a lo normal.
 class InicioScreen extends StatefulWidget {
-  const InicioScreen({super.key, required this.onVerAvisos});
+  const InicioScreen({super.key, required this.onVerAvisos, this.activa = true});
 
   /// Cambia a la pestaña Avisos (lo usa la tarjeta de sugerencia).
   final VoidCallback onVerAvisos;
+
+  /// Si es la pestaña que se ve (la otra sigue viva detrás).
+  final bool activa;
 
   @override
   State<InicioScreen> createState() => _InicioScreenState();
@@ -37,6 +44,12 @@ class InicioScreen extends StatefulWidget {
 
 class _InicioScreenState extends State<InicioScreen> with ToastMixin {
   final _busqueda = TextEditingController();
+  final _foco = FocusNode();
+  final _scroll = ScrollController();
+
+  /// Modo búsqueda: empieza al tocar el buscador y termina con "Cancelar".
+  bool _buscando = false;
+
   String _perfilId = Perfil.idPropio;
   Categoria? _categoria; // null = "Todos"
 
@@ -55,6 +68,7 @@ class _InicioScreenState extends State<InicioScreen> with ToastMixin {
   void initState() {
     super.initState();
     _busqueda.addListener(_alBuscar);
+    _foco.addListener(_alCambiarFoco);
   }
 
   @override
@@ -78,9 +92,24 @@ class _InicioScreenState extends State<InicioScreen> with ToastMixin {
     setState(_abrirStreams);
   }
 
+  void _alCambiarFoco() {
+    if (!_foco.hasFocus || _buscando) return;
+    // El buscador queda arriba y la lista justo debajo.
+    if (_scroll.hasClients) _scroll.jumpTo(0);
+    setState(() => _buscando = true);
+  }
+
+  void _salirDeBusqueda() {
+    _foco.unfocus();
+    _busqueda.clear();
+    setState(() => _buscando = false);
+  }
+
   @override
   void dispose() {
     _busqueda.dispose();
+    _foco.dispose();
+    _scroll.dispose();
     super.dispose();
   }
 
@@ -102,6 +131,7 @@ class _InicioScreenState extends State<InicioScreen> with ToastMixin {
   Future<void> _enviarPorWhatsApp(Documento d) async {
     if (_enviando) return;
     _enviando = true;
+    _foco.unfocus();
     showToast('Preparando “${d.nombre}” en PDF…');
     await enviarDocumento(context, d, porWhatsApp: true, avisar: (m) => mounted ? showToast(m) : null);
     _enviando = false;
@@ -180,82 +210,110 @@ class _InicioScreenState extends State<InicioScreen> with ToastMixin {
       fuerte = nombre;
     }
 
-    return ColoredBox(
-      color: AppColors.fondo,
-      child: Stack(
-        children: [
-          SafeArea(
-            bottom: false,
-            child: NoScrollbar(
-              child: ListView(
-                padding: EdgeInsets.only(bottom: 120 + MediaQuery.paddingOf(context).bottom),
-                children: [
-                  _Encabezado(ligero: ligero, fuerte: fuerte, subtitulo: subtitulo),
-                  const SizedBox(height: 20),
-                  _Buscador(controller: _busqueda),
-                  const SizedBox(height: 26),
-                  const _TituloSeccion('Perfiles'),
-                  const SizedBox(height: 12),
-                  _FilaPerfiles(perfiles: perfiles, actual: perfil.id, onElegir: _elegirPerfil),
-                  if (sugerencia != null) ...[
-                    // La fila de perfiles ya deja 24 px abajo para su sombra.
-                    const SizedBox(height: 2),
-                    _TarjetaSugerencia(texto: sugerencia.resumen, onVer: widget.onVerAvisos),
-                  ],
-                  const SizedBox(height: 26),
-                  _TituloSeccion(
-                    'Documentos',
-                    trailing: Text(
-                      docs.length == 1 ? '1 documento' : '${docs.length} documentos',
-                      style: AppText.secondary(14),
+    return PopScope(
+      // En modo búsqueda, atrás primero sale de la búsqueda.
+      canPop: !(_buscando && widget.activa),
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && _buscando && widget.activa) _salirDeBusqueda();
+      },
+      child: ColoredBox(
+        color: AppColors.fondo,
+        child: Stack(
+          children: [
+            SafeArea(
+              bottom: false,
+              child: NoScrollbar(
+                child: ListView(
+                  controller: _scroll,
+                  // Al deslizar los resultados se baja el teclado para verlos mejor.
+                  keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+                  padding: EdgeInsets.only(bottom: 120 + MediaQuery.paddingOf(context).bottom),
+                  children: [
+                    // El buscador siempre va segundo y con llave: si cambiara de
+                    // lugar se crearía de nuevo y se cerraría el teclado.
+                    if (_buscando)
+                      const SizedBox(height: 16)
+                    else
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 20),
+                        child: _Encabezado(ligero: ligero, fuerte: fuerte, subtitulo: subtitulo),
+                      ),
+                    _Buscador(
+                      key: const ValueKey('buscador'),
+                      controller: _busqueda,
+                      foco: _foco,
+                      onCancelar: _buscando ? _salirDeBusqueda : null,
                     ),
-                  ),
-                  if (todos.isNotEmpty) ...[
-                    const SizedBox(height: 12),
-                    _FilaCategorias(
-                      categorias: categoriasPresentes,
-                      actual: _categoria,
-                      onElegir: (c) => setState(() => _categoria = c),
-                    ),
-                  ],
-                  const SizedBox(height: 14),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      spacing: 12,
-                      children: [
-                        for (final d in docs)
-                          TarjetaDocumento(
-                            documento: d,
-                            hoy: hoy,
-                            onAbrir: () =>
-                                Navigator.of(context).pushNamed(AppRoutes.detalle, arguments: d.id),
-                            onWhatsApp: () => _enviarPorWhatsApp(d),
-                          ),
-                        if (todos.isEmpty)
-                          _Vacio(
-                            titulo: 'Este cajón está vacío',
-                            texto: perfil.esPropio
-                                ? 'Agrega tu primer documento con el botón +.'
-                                : 'Agrega el primer documento de ${perfil.nombre}.',
-                            onVerTodos: null,
-                          )
-                        else if (docs.isEmpty)
-                          _Vacio(
-                            titulo: 'No encontramos ese documento',
-                            texto: 'Revisa cómo lo escribiste o agrégalo a este cajón.',
-                            onVerTodos: _verTodos,
-                          ),
+                    if (!_buscando) ...[
+                      const SizedBox(height: 26),
+                      const _TituloSeccion('Perfiles'),
+                      const SizedBox(height: 12),
+                      _FilaPerfiles(perfiles: perfiles, actual: perfil.id, onElegir: _elegirPerfil),
+                      if (sugerencia != null) ...[
+                        // La fila de perfiles ya deja 24 px abajo para su sombra.
+                        const SizedBox(height: 2),
+                        _TarjetaSugerencia(texto: sugerencia.resumen, onVer: widget.onVerAvisos),
                       ],
+                    ],
+                    SizedBox(height: _buscando ? 20 : 26),
+                    _TituloSeccion(
+                      // Sin la fila de perfiles, el título dice en qué cajón se busca.
+                      _buscando && !perfil.esPropio ? 'Documentos de ${perfil.nombre}' : 'Documentos',
+                      trailing: Text(
+                        docs.length == 1 ? '1 documento' : '${docs.length} documentos',
+                        style: AppText.secondary(14),
+                      ),
                     ),
-                  ),
-                ],
+                    if (todos.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      _FilaCategorias(
+                        categorias: categoriasPresentes,
+                        actual: _categoria,
+                        onElegir: (c) => setState(() => _categoria = c),
+                      ),
+                    ],
+                    const SizedBox(height: 14),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        spacing: 12,
+                        children: [
+                          for (final d in docs)
+                            TarjetaDocumento(
+                              documento: d,
+                              hoy: hoy,
+                              onAbrir: () {
+                                // Sin foco, al volver no se abre otra vez el teclado.
+                                _foco.unfocus();
+                                Navigator.of(context).pushNamed(AppRoutes.detalle, arguments: d.id);
+                              },
+                              onWhatsApp: () => _enviarPorWhatsApp(d),
+                            ),
+                          if (todos.isEmpty)
+                            _Vacio(
+                              titulo: 'Este cajón está vacío',
+                              texto: perfil.esPropio
+                                  ? 'Agrega tu primer documento con el botón +.'
+                                  : 'Agrega el primer documento de ${perfil.nombre}.',
+                              onVerTodos: null,
+                            )
+                          else if (docs.isEmpty)
+                            _Vacio(
+                              titulo: 'No encontramos ese documento',
+                              texto: 'Revisa cómo lo escribiste o agrégalo a este cajón.',
+                              onVerTodos: _verTodos,
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-          TcToast(message: toastMessage, icon: AppIcons.whatsapp, bottom: 100),
-        ],
+            TcToast(message: toastMessage, icon: AppIcons.whatsapp, bottom: 100),
+          ],
+        ),
       ),
     );
   }
@@ -307,7 +365,7 @@ class _Encabezado extends StatelessWidget {
             color: AppColors.superficie,
             iconColor: AppColors.texto,
             shadow: true,
-            onTap: () {}, // Pendiente: pantalla de ajustes.
+            onTap: () => Navigator.of(context).pushNamed(AppRoutes.ajustes),
           ),
         ],
       ),
@@ -375,14 +433,17 @@ class _FilaPerfiles extends StatelessWidget {
 }
 
 class _Buscador extends StatelessWidget {
-  const _Buscador({required this.controller});
+  const _Buscador({super.key, required this.controller, required this.foco, this.onCancelar});
 
   final TextEditingController controller;
+  final FocusNode foco;
+
+  /// Solo en modo búsqueda: muestra "Cancelar" al lado.
+  final VoidCallback? onCancelar;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 20),
+    final campo = Container(
       height: 56,
       padding: const EdgeInsets.only(left: 18, right: 8),
       decoration: AppDecor.tarjeta(radius: 20),
@@ -393,6 +454,7 @@ class _Buscador extends StatelessWidget {
           Expanded(
             child: TextField(
               controller: controller,
+              focusNode: foco,
               textInputAction: TextInputAction.search,
               style: AppText.body(16),
               decoration: InputDecoration(
@@ -413,6 +475,28 @@ class _Buscador extends StatelessWidget {
               semanticLabel: 'Borrar búsqueda',
               child: const Center(child: TcIcon(AppIcons.cerrar, size: 18, color: AppColors.textoSecundario)),
             ),
+        ],
+      ),
+    );
+    return Padding(
+      padding: EdgeInsets.only(left: 20, right: onCancelar == null ? 20 : 8),
+      child: Row(
+        children: [
+          Expanded(child: campo),
+          if (onCancelar != null) ...[
+            const SizedBox(width: 4),
+            TcTap(
+              onTap: onCancelar,
+              minHeight: 48,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              semanticLabel: 'Cancelar búsqueda',
+              child: Center(
+                widthFactor: 1,
+                heightFactor: 1,
+                child: Text('Cancelar', style: AppText.bold(16, color: AppColors.primario)),
+              ),
+            ),
+          ],
         ],
       ),
     );
