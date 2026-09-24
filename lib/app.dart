@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
+import 'core/archivos/buzon.dart';
+import 'core/archivos/recepcion.dart';
 import 'core/archivos/selector_archivos.dart';
 import 'core/compartir/compartidor.dart';
 import 'core/router/app_routes.dart';
@@ -19,12 +21,14 @@ class TuCajonApp extends StatefulWidget {
     LlaveCelular? llave,
     Compartidor? compartidor,
     SelectorArchivos? selector,
+    Buzon? buzon,
     this.reloj,
     this.rutaInicial = AppRoutes.carga,
     this.argumentos,
   }) : llave = llave ?? LlaveCelular.paraEstaPlataforma(),
        compartidor = compartidor ?? Compartidor.paraEstaPlataforma(),
-       selector = selector ?? SelectorArchivos.paraEstaPlataforma();
+       selector = selector ?? SelectorArchivos.paraEstaPlataforma(),
+       buzon = buzon ?? Buzon.paraEstaPlataforma();
 
   final CajonRepositorio repo;
 
@@ -36,6 +40,9 @@ class TuCajonApp extends StatefulWidget {
 
   /// Abre la galería y el explorador de archivos (simulado en pruebas).
   final SelectorArchivos selector;
+
+  /// Lo que otras apps comparten con "Compartir → Tu Cajón" (simulado en pruebas).
+  final Buzon buzon;
 
   /// Para pruebas: la hora que usa el cerrojo.
   final DateTime Function()? reloj;
@@ -60,15 +67,21 @@ class _TuCajonAppState extends State<TuCajonApp> {
     reloj: widget.reloj,
   );
 
+  /// Lleva lo que llega por "Compartir" a su pantalla, con el cajón abierto.
+  late final Recepcion _recepcion;
+
   @override
   void initState() {
     super.initState();
     // Si la app se cerró después de compartir, el PDF se borra al volver.
     widget.compartidor.limpiar();
+    // Desde ya: la app pudo abrirse con algo compartido.
+    _recepcion = Recepcion(buzon: widget.buzon, navegador: _navegador, cerrojo: _cerrojo);
   }
 
   @override
   void dispose() {
+    _recepcion.dispose();
     _cerrojo.dispose();
     super.dispose();
   }
@@ -85,22 +98,26 @@ class _TuCajonAppState extends State<TuCajonApp> {
             compartidor: widget.compartidor,
             child: SelectorScope(
               selector: widget.selector,
-              child: AnnotatedRegion<SystemUiOverlayStyle>(
-                value: SystemUiOverlayStyle.dark.copyWith(statusBarColor: Colors.transparent),
-                child: MaterialApp(
-                  navigatorKey: _navegador,
-                  title: 'Tu Cajón',
-                  debugShowCheckedModeBanner: false,
-                  theme: AppTheme.light,
-                  locale: const Locale('es', 'CO'),
-                  supportedLocales: const [Locale('es', 'CO'), Locale('es')],
-                  localizationsDelegates: GlobalMaterialLocalizations.delegates,
-                  onGenerateInitialRoutes: (_) => [
-                    AppRoutes.onGenerateRoute(
-                      RouteSettings(name: widget.rutaInicial, arguments: widget.argumentos),
-                    ),
-                  ],
-                  onGenerateRoute: AppRoutes.onGenerateRoute,
+              child: RecepcionScope(
+                recepcion: _recepcion,
+                child: AnnotatedRegion<SystemUiOverlayStyle>(
+                  value: SystemUiOverlayStyle.dark.copyWith(statusBarColor: Colors.transparent),
+                  child: MaterialApp(
+                    navigatorKey: _navegador,
+                    navigatorObservers: [_recepcion.rutas],
+                    title: 'Tu Cajón',
+                    debugShowCheckedModeBanner: false,
+                    theme: AppTheme.light,
+                    locale: const Locale('es', 'CO'),
+                    supportedLocales: const [Locale('es', 'CO'), Locale('es')],
+                    localizationsDelegates: GlobalMaterialLocalizations.delegates,
+                    onGenerateInitialRoutes: (_) => [
+                      AppRoutes.onGenerateRoute(
+                        RouteSettings(name: widget.rutaInicial, arguments: widget.argumentos),
+                      ),
+                    ],
+                    onGenerateRoute: AppRoutes.onGenerateRoute,
+                  ),
                 ),
               ),
             ),

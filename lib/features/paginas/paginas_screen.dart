@@ -21,13 +21,17 @@ import '../guardar/guardar_screen.dart';
 
 /// Con qué fotos se abre "Tus páginas".
 class EntradaPaginas {
-  const EntradaPaginas({this.listas = const [], this.nuevas = const []});
+  const EntradaPaginas({this.listas = const [], this.nuevas = const [], this.aviso});
 
   /// Páginas ya preparadas (vuelven de Guardar con "Otra página").
   final List<Uint8List> listas;
 
-  /// Fotos recién elegidas en la galería: se enderezan y se achican.
+  /// Fotos recién elegidas en la galería (o compartidas desde otra app): se
+  /// enderezan y se achican.
   final List<Uint8List> nuevas;
+
+  /// Algo que decir al abrir (p. ej. que una foto compartida no llegó).
+  final String? aviso;
 }
 
 /// Tus páginas: las fotos elegidas en la galería, antes de guardarlas.
@@ -73,6 +77,11 @@ class _PaginasScreenState extends State<PaginasScreen> {
   void initState() {
     super.initState();
     if (widget.entrada.nuevas.isNotEmpty) _preparar(widget.entrada.nuevas);
+    if (widget.entrada.aviso case final aviso?) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _avisar(aviso);
+      });
+    }
   }
 
   /// Endereza y achica cada foto (en otro hilo) y la agrega al final.
@@ -153,8 +162,13 @@ class _PaginasScreenState extends State<PaginasScreen> {
     ..hideCurrentSnackBar()
     ..showSnackBar(SnackBar(content: Text(mensaje), behavior: SnackBarBehavior.floating));
 
-  void _continuar() => Navigator.of(context)
-      .pushReplacementNamed(AppRoutes.guardar, arguments: FotosDeGaleria([for (final p in _paginas) p.foto]));
+  void _continuar() {
+    // Un aviso de esta pantalla no debe quedar tapando el botón de Guardar.
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    Navigator.of(
+      context,
+    ).pushReplacementNamed(AppRoutes.guardar, arguments: FotosDeGaleria([for (final p in _paginas) p.foto]));
+  }
 
   @override
   Widget build(BuildContext context) {

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/archivos/recepcion.dart';
 import '../../core/icons/app_icons.dart';
 import '../../core/router/app_routes.dart';
 import '../../core/theme/app_colors.dart';
@@ -39,6 +40,9 @@ class CargaScreen extends StatefulWidget {
   /// Cuánto dura la pantalla de carga para quien ya está registrado.
   static const duracionCarga = Duration(milliseconds: 4500);
 
+  /// Cuando se abrió desde "Compartir": solo un vistazo.
+  static const cargaCorta = Duration(milliseconds: 1200);
+
   @override
   State<CargaScreen> createState() => _CargaScreenState();
 }
@@ -64,12 +68,17 @@ class _CargaScreenState extends State<CargaScreen> {
   /// la bienvenida.
   Future<void> _revisarRegistro() async {
     final messenger = ScaffoldMessenger.of(context);
+    final recepcion = context.recepcion;
     try {
       final registrado = await context.repo.llaveActivada();
+      // Si se abrió desde "Compartir → Tu Cajón", la persona viene a guardar
+      // algo: la carga es corta y pasa rápido a la llave.
+      final llegoAlgo =
+          registrado && await recepcion.revisado.timeout(const Duration(seconds: 1), onTimeout: () => false);
       if (!mounted) return;
       setState(() => _modo = registrado ? _Modo.carga : _Modo.bienvenida);
       if (registrado) {
-        _temporizador = Timer(CargaScreen.duracionCarga, _irAlCajon);
+        _temporizador = Timer(llegoAlgo ? CargaScreen.cargaCorta : CargaScreen.duracionCarga, _irAlCajon);
       }
     } catch (e) {
       // Antes el error se perdía y la pantalla se quedaba quieta sin avisar.

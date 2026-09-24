@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/icons/app_icons.dart';
 import '../../core/router/app_routes.dart';
+import '../../core/seguridad/cerrojo.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_decor.dart';
 import '../../core/theme/app_text.dart';
@@ -29,7 +30,8 @@ class FotosDeGaleria {
   final List<Uint8List> fotos;
 }
 
-/// Un PDF subido desde el explorador de archivos, listo para guardar.
+/// Un PDF subido desde el explorador de archivos (o que llegó por
+/// "Compartir"), listo para guardar.
 class PdfSubido {
   const PdfSubido({
     required this.bytes,
@@ -37,6 +39,7 @@ class PdfSubido {
     required this.nombreArchivo,
     this.portada,
     this.aviso,
+    this.recibido = false,
   });
 
   final Uint8List bytes;
@@ -51,6 +54,9 @@ class PdfSubido {
   /// Algo que decirle a la persona (p. ej. que el PDF tiene contraseña).
   final String? aviso;
 
+  /// Llegó desde otra app con "Compartir → Tu Cajón".
+  final bool recibido;
+
   /// "Certificado_EPS_2026.pdf" → "Certificado EPS 2026".
   String get nombreSugerido {
     final sinExtension = nombreArchivo.replaceFirst(RegExp(r'\.pdf$', caseSensitive: false), '');
@@ -63,7 +69,8 @@ class PdfSubido {
 /// 10 · Guardar: el usuario revisa nombre, carpeta y si se vence.
 ///
 /// Llega de tres lados: la cámara (la "IA" propone una cédula), la galería
-/// (fotos ya revisadas) o un PDF subido (se propone el nombre del archivo).
+/// (fotos ya revisadas, también las que llegan por "Compartir") o un PDF
+/// subido o compartido desde otra app (se propone el nombre del archivo).
 class GuardarScreen extends StatefulWidget {
   const GuardarScreen({
     super.key,
@@ -137,6 +144,7 @@ class _GuardarScreenState extends State<GuardarScreen> {
     setState(() => _guardando = true);
     final navigator = Navigator.of(context);
     final messenger = ScaffoldMessenger.of(context);
+    final cerrojo = context.cerrojo;
     final String id;
     final pdf = widget.pdf;
     try {
@@ -159,6 +167,9 @@ class _GuardarScreenState extends State<GuardarScreen> {
       messenger.showSnackBar(const SnackBar(content: Text('No se pudo guardar. Inténtalo de nuevo.')));
       rethrow;
     }
+    // Si la persona salió mientras se guardaba, espera a que abra con su
+    // llave: si no, el cambio de pantalla quitaría la pantalla de la llave.
+    await cerrojo.esperarAbierto();
     // Vuelve a "Mi cajón" y abre el documento recién guardado encima.
     navigator.pushNamedAndRemoveUntil(
       AppRoutes.detalle,
@@ -172,9 +183,10 @@ class _GuardarScreenState extends State<GuardarScreen> {
   /// El recuadro de arriba: título y texto según de dónde viene el documento.
   (String, String) get _aviso {
     if (widget.pdf case final pdf?) {
-      return pdf.aviso != null
-          ? ('Revisa este PDF', pdf.aviso!)
-          : ('Usamos el nombre del archivo', 'Revisa que esté bien y elige la carpeta.');
+      if (pdf.aviso case final aviso?) return ('Revisa este PDF', aviso);
+      return pdf.recibido
+          ? ('Llegó a tu cajón', 'Revisa el nombre y elige de quién es y qué tipo de documento es.')
+          : ('Usamos el nombre del archivo', 'Revisa que esté bien y elige qué tipo de documento es.');
     }
     if (widget.origen == OrigenFotos.galeria) {
       return ('Ponle un nombre', 'Así lo encuentras rápido cuando lo busques.');
@@ -269,7 +281,7 @@ class _GuardarScreenState extends State<GuardarScreen> {
                       ),
                     ),
                     const SizedBox(height: 18),
-                    Text('¿En qué carpeta lo guardamos?', style: AppText.bold(16)),
+                    Text('¿Qué tipo de documento es?', style: AppText.bold(16)),
                     const SizedBox(height: 10),
                     Wrap(
                       spacing: 8,

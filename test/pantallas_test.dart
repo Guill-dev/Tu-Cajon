@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tu_cajon/app.dart';
 import 'package:image/image.dart' as img;
+import 'package:tu_cajon/core/archivos/buzon.dart';
 import 'package:tu_cajon/core/archivos/selector_archivos.dart';
 import 'package:tu_cajon/core/compartir/compartidor.dart';
 import 'package:tu_cajon/data/compartir/pdf_documento.dart';
@@ -54,11 +55,14 @@ void main() {
       const MethodChannel('flutter.baseflow.com/permissions/methods'),
       (_) async => throw MissingPluginException(),
     );
-    // Tampoco hay lector de PDF nativo: responde "no implementado".
-    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
-      const MethodChannel('tu_cajon/pdf'),
-      (_) async => throw MissingPluginException(),
-    );
+    // Tampoco hay lector de PDF nativo ni buzón de "Compartir": responden
+    // "no implementado".
+    for (final canal in ['tu_cajon/pdf', 'tu_cajon/recibir']) {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+        MethodChannel(canal),
+        (_) async => throw MissingPluginException(),
+      );
+    }
   });
 
   final rutas = <String, (String, Object?)>{
@@ -652,6 +656,197 @@ void main() {
       expect(find.text('Hola de nuevo,'), findsOneWidget);
       await tester.pump(const Duration(seconds: 4));
       await tester.pump(const Duration(seconds: 1));
+    });
+  });
+
+  group('Recibir desde otra app (Compartir → Tu Cajón)', () {
+    Future<void> abrirConBuzon(
+      WidgetTester tester, {
+      required MemoriaCajonRepositorio repo,
+      required BuzonSimulado buzon,
+      String ruta = AppRoutes.cajon,
+      LlaveSimulada? llave,
+    }) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpWidget(
+        TuCajonApp(
+          repo: repo,
+          llave: llave ?? LlaveSimulada(),
+          buzon: buzon,
+          compartidor: CompartidorSimulado(),
+          selector: SelectorSimulado(),
+          rutaInicial: ruta,
+        ),
+      );
+    }
+
+    /// Deja pasar varios cuadros (cambios de pantalla y fundidos).
+    Future<void> avanzar(WidgetTester tester, [int veces = 5]) async {
+      for (var i = 0; i < veces; i++) {
+        await tester.pump(const Duration(milliseconds: 400));
+      }
+    }
+
+    Future<void> tocar(WidgetTester tester, Finder f) async {
+      await tester.ensureVisible(f);
+      await tester.pump();
+      await tester.tap(f);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+    }
+
+    Uint8List jpeg(int w, int h) => Uint8List.fromList(img.encodeJpg(img.Image(width: w, height: h)));
+
+    testWidgets('Un PDF compartido va directo a Guardar: nombre, de quién es y qué tipo', (tester) async {
+      final pdf = await armarPdf([fotoPrueba], titulo: 'Fórmula');
+      final repo = MemoriaCajonRepositorio();
+      final buzon = BuzonSimulado(
+        Envio(
+          archivos: [ArchivoRecibido(nombre: 'Formula_medica_sept.pdf', tipo: 'application/pdf', bytes: pdf)],
+        ),
+      );
+      await abrirConBuzon(tester, repo: repo, buzon: buzon);
+      await avanzar(tester);
+
+      expect(find.text('Llegó a tu cajón'), findsOneWidget);
+      expect(find.text('Formula medica sept'), findsOneWidget);
+      expect(find.text('¿De quién es?'), findsOneWidget);
+      expect(find.text('¿Qué tipo de documento es?'), findsOneWidget);
+
+      await tester.enterText(find.byType(TextField), 'Fórmula médica');
+      await tester.pump();
+      await tocar(tester, find.text('Mamá'));
+      await tocar(tester, find.text('Salud'));
+      await tocar(tester, find.text('Guardar en mi cajón'));
+      await tester.pump(const Duration(seconds: 1));
+
+      final doc = (await repo.buscar('Fórmula médica')).firstWhere((d) => d.nombre == 'Fórmula médica');
+      expect(doc.perfilId, 'mama');
+      expect(doc.categoria, Categoria.salud);
+      expect(await repo.leerPdf(doc), pdf);
+      await tester.pump(const Duration(seconds: 3));
+    });
+
+    testWidgets('Fotos compartidas van a Tus páginas para editarlas y guardarlas', (tester) async {
+      final repo = MemoriaCajonRepositorio();
+      final buzon = BuzonSimulado();
+      await abrirConBuzon(tester, repo: repo, buzon: buzon);
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.byType(CajonShell), findsOneWidget);
+
+      // Llegan con la app abierta: dos fotos y una que pesaba demasiado.
+      buzon.recibir(
+        Envio(
+          archivos: [
+            ArchivoRecibido(nombre: 'IMG-WA0001.jpg', tipo: 'image/jpeg', bytes: jpeg(300, 400)),
+            ArchivoRecibido(nombre: 'IMG-WA0002.jpg', tipo: 'image/jpeg', bytes: jpeg(400, 300)),
+            const ArchivoRecibido(
+              nombre: 'grande.jpg',
+              tipo: 'image/jpeg',
+              problema: ProblemaRecibido.muyGrande,
+            ),
+          ],
+        ),
+      );
+      await avanzar(tester, 3);
+      expect(find.textContaining('Toca una página para recortarla'), findsOneWidget);
+      expect(find.text('Una foto no se pudo recibir.'), findsWidgets);
+      await esperarHasta(tester, () => find.text('Continuar con 2 páginas').evaluate().isNotEmpty);
+
+      await tocar(tester, find.text('Continuar con 2 páginas'));
+      await tester.enterText(find.byType(TextField), 'Recibo del agua');
+      await tester.pump();
+      await tocar(tester, find.text('Guardar en mi cajón'));
+      await tester.pump(const Duration(seconds: 1));
+
+      final doc = (await repo.buscar('Recibo del agua')).firstWhere((d) => d.nombre == 'Recibo del agua');
+      expect(await repo.leerPaginas(doc), hasLength(2));
+      await tester.pump(const Duration(seconds: 4));
+    });
+
+    testWidgets('Si llega con el cajón cerrado, primero se pide la llave', (tester) async {
+      final pdf = await armarPdf([fotoPrueba], titulo: 'Factura');
+      final buzon = BuzonSimulado();
+      final llave = LlaveSimulada();
+      await abrirConBuzon(
+        tester,
+        repo: MemoriaCajonRepositorio(),
+        buzon: buzon,
+        llave: llave,
+        ruta: AppRoutes.desbloqueo,
+      );
+      await tester.pump(const Duration(seconds: 4));
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.byType(CajonShell), findsOneWidget);
+
+      // Se va a WhatsApp y desde ahí comparte un PDF con Tu Cajón.
+      salirDeLaApp(tester);
+      await tester.pump();
+      buzon.recibir(
+        Envio(
+          archivos: [ArchivoRecibido(nombre: 'Factura.pdf', tipo: 'application/pdf', bytes: pdf)],
+        ),
+      );
+      await tester.pump();
+      volverALaApp(tester);
+      await tester.pump();
+
+      // Lo primero es la llave; el documento no se ve todavía.
+      expect(find.text('Hola de nuevo,'), findsOneWidget);
+      expect(find.text('Llegó a tu cajón'), findsNothing);
+
+      await tester.pump(const Duration(seconds: 4));
+      await tester.pump(const Duration(seconds: 1));
+      await avanzar(tester);
+      expect(llave.intentos, 2);
+      expect(find.text('Hola de nuevo,'), findsNothing);
+      expect(find.text('Llegó a tu cajón'), findsOneWidget);
+      expect(find.text('Factura'), findsOneWidget);
+    });
+
+    testWidgets('Si la app se abre desde "Compartir", la carga es corta y sigue tras la llave', (
+      tester,
+    ) async {
+      final pdf = await armarPdf([fotoPrueba], titulo: 'Certificado');
+      final repo = MemoriaCajonRepositorio();
+      await repo.activarLlave();
+      final buzon = BuzonSimulado(
+        Envio(
+          archivos: [ArchivoRecibido(nombre: 'Certificado.pdf', tipo: 'application/pdf', bytes: pdf)],
+        ),
+      );
+      await abrirConBuzon(tester, repo: repo, buzon: buzon, ruta: AppRoutes.carga);
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(find.text('Hola de nuevo,'), findsOneWidget);
+
+      // Al abrir, "Mi cajón" no tapa lo que llegó: se abre Guardar encima.
+      await tester.pump(const Duration(seconds: 4));
+      await tester.pump(const Duration(seconds: 1));
+      await avanzar(tester);
+      expect(find.text('Llegó a tu cajón'), findsOneWidget);
+      await tester.binding.handlePopRoute(); // botón "atrás" del celular
+      await avanzar(tester, 2);
+      expect(find.byType(CajonShell), findsOneWidget);
+    });
+
+    testWidgets('Un archivo que no sirve se explica y se vuelve al cajón', (tester) async {
+      final buzon = BuzonSimulado(
+        Envio(
+          archivos: [ArchivoRecibido(nombre: 'factura.pdf', tipo: 'application/pdf', bytes: fotoPrueba)],
+        ),
+      );
+      await abrirConBuzon(tester, repo: MemoriaCajonRepositorio(), buzon: buzon);
+      await avanzar(tester);
+      expect(find.text('No se pudo recibir'), findsOneWidget);
+      expect(find.textContaining('no es un PDF'), findsOneWidget);
+      await tocar(tester, find.text('Volver'));
+      expect(find.byType(CajonShell), findsOneWidget);
+      expect(tester.takeException(), isNull);
     });
   });
 }

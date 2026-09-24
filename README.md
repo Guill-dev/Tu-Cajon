@@ -43,7 +43,8 @@ lib/
 │   ├── router/app_routes.dart Nombres de las rutas y qué pantalla abre cada una.
 │   ├── seguridad/             Llave del celular (huella/PIN) y cerrojo al salir de la app.
 │   ├── compartir/             Arma el PDF y lo entrega a WhatsApp o al menú de compartir.
-│   ├── archivos/              Abre la galería y el explorador de archivos del sistema.
+│   ├── archivos/              Abre la galería y el explorador de archivos del sistema, y
+│                              recibe lo que llega por "Compartir → Tu Cajón" (buzón).
 │   ├── pdf/                   Lee los PDF subidos con el lector nativo (sin dejar copias).
 │   ├── formato.dart           Fechas en español, tamaños ("480 KB") y búsqueda sin tildes.
 │   └── motion.dart            Curva "suave" del diseño y detector de "reducir animaciones".
@@ -72,6 +73,7 @@ lib/
     ├── agregar/               8 · Agregar documento
     ├── escanear/              9 · Escanear con la cámara (formatos, recorte, filtros, revisar foto)
     ├── paginas/               Tus páginas: fotos de la galería antes de guardarlas
+    ├── recibir/               Lo que llega desde WhatsApp, Gmail, Drive o la galería
     ├── guardar/               10 · Guardar (la IA llena los datos)
     ├── preguntar/             11 · Pregúntale a tu cajón (chat IA)
     ├── perfil/                12 · Nuevo perfil (Mamá, mascotas…)
@@ -125,6 +127,7 @@ Si una pieza sirve en dos pantallas, se mueve a `shared/`. Si solo sirve en una,
 | Barra inferior | + Agregar | Agregar → Escanear → Guardar → Documento |
 | Agregar | Subir un PDF | explorador de archivos → Guardar → Documento |
 | Agregar | Fotos de la galería | galería → Tus páginas → Guardar → Documento |
+| Otra app (WhatsApp, Gmail, Drive, galería) | Compartir → Tu Cajón | la llave → un PDF va a Guardar; fotos, a Tus páginas → Guardar |
 
 "Mi cajón" y "Avisos" son dos pestañas del mismo contenedor (`features/cajon/cajon_shell.dart`).
 Por eso, al cambiar de pestaña, cada una conserva sus filtros y lo que ya descartaste.
@@ -191,11 +194,12 @@ Pantalla ──context.repo──▶ CajonRepositorio (interfaz)
 | La IA de "Guardar" siempre propone "Cédula de ciudadanía" | Reconocimiento de texto en el celular (OCR) que llene `textoExtraido` |
 | El chat usa búsqueda + reglas (`preguntar/respuestas_demo.dart`) | Modelo de IA local sobre tus documentos |
 | "Recordarme el lunes" solo muestra un aviso | `flutter_local_notifications` |
-| Ajustes y "Ver completo" no hacen nada | Pendientes |
+| Ajustes no hace nada | Pendiente |
+| "Compartir → Tu Cajón" solo en Android | En iPhone hace falta una extensión aparte (Share Extension) |
 
 Ya funcionan de verdad: la llave del cajón (huella, rostro, PIN o patrón del celular, con `local_auth`), que se vuelve a pedir cada vez que se sale de la app (`core/seguridad/cerrojo.dart`), la cámara (con
 formatos de marco, páginas ilimitadas, revisar/recortar/eliminar cada foto y filtros de escáner, en
-`features/escanear/`), subir un PDF (se guarda tal cual, cifrado; sus páginas se dibujan con el lector nativo de Android sin dejar copias, `core/pdf/`) o fotos de la galería con las mismas herramientas de la cámara (`features/paginas/`), enviar por WhatsApp o compartir como PDF (`core/compartir/`, el PDF temporal se borra solo), guardar documentos, renombrar, eliminar, crear perfiles, buscar,
+`features/escanear/`), subir un PDF (se guarda tal cual, cifrado; sus páginas se dibujan con el lector nativo de Android sin dejar copias, `core/pdf/`) o fotos de la galería con las mismas herramientas de la cámara (`features/paginas/`), recibir un PDF o fotos desde otras apps con "Compartir → Tu Cajón" (`ArchivosRecibidos.kt` los lee directo a la memoria, sin copias; se ven solo después de la llave; `core/archivos/recepcion.dart` y `features/recibir/`), enviar por WhatsApp o compartir como PDF (`core/compartir/`, el PDF temporal se borra solo), guardar documentos, renombrar, eliminar, crear perfiles, buscar,
 descartar sugerencias, y recordar el nombre y la llave entre sesiones.
 
 ---
@@ -222,6 +226,10 @@ y qué datos usa.
 
 ## Notas
 
+- **Ícono:** el diseño original está en `assets/icono/icono.png`. Si se cambia, se corre
+  `dart run tool/generar_iconos.dart` y se rehacen todos los tamaños: Android (adaptable
+  para cualquier forma, redondo y temático de un color), iPhone, web y
+  `assets/icono/play_store_512.png` para la Play Store.
 - **Letras:** Plus Jakarta Sans va dentro de la app (`assets/fonts/`, pesos 400 a 800,
   licencia libre en `assets/fonts/OFL.txt`). No se descarga nada de internet.
 - **Letra grande:** los botones y las filas crecen si la persona usa letra grande en su

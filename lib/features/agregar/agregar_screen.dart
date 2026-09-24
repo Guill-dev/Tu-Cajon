@@ -1,12 +1,10 @@
-import 'dart:math' as math;
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/archivos/selector_archivos.dart';
 import '../../core/icons/app_icons.dart';
-import '../../core/pdf/lector_pdf.dart';
 import '../../core/router/app_routes.dart';
+import '../../core/seguridad/cerrojo.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_decor.dart';
 import '../../core/theme/app_text.dart';
@@ -17,14 +15,12 @@ import '../../shared/widgets/tc_icon.dart';
 import '../../shared/widgets/tc_tap.dart';
 import '../guardar/guardar_screen.dart';
 import '../paginas/paginas_screen.dart';
+import 'preparar_pdf.dart';
 
 /// 8 · Agregar documento: escanear, subir un PDF, elegir fotos de la galería
 /// o recibirlo por WhatsApp.
 class AgregarScreen extends StatefulWidget {
   const AgregarScreen({super.key});
-
-  /// El PDF más grande que se acepta.
-  static const maximoPdf = 50 * 1024 * 1024;
 
   @override
   State<AgregarScreen> createState() => _AgregarScreenState();
@@ -51,45 +47,24 @@ class _AgregarScreenState extends State<AgregarScreen> {
       return;
     }
     if (!mounted || elegido == null) return;
-    if (!LectorPdf.pareceUnPdf(elegido.bytes)) {
-      _avisar('Ese archivo no es un PDF. Elige un archivo que termine en .pdf.');
-      return;
-    }
-    if (elegido.bytes.length > AgregarScreen.maximoPdf) {
-      _avisar('Ese PDF pesa más de 50 MB. Elige uno más liviano.');
-      return;
-    }
 
+    final cerrojo = context.cerrojo;
     setState(() => _ocupado = 'Leyendo el PDF…');
-    var paginas = 1;
-    Uint8List? portada;
-    String? aviso;
+    final PdfSubido listo;
     try {
-      paginas = math.max(1, await LectorPdf.contarPaginas(elegido.bytes));
-      portada = (await LectorPdf.dibujar(elegido.bytes, ancho: 400, hasta: 1)).firstOrNull;
-    } on ErrorPdf catch (e) {
-      if (e.problema == ProblemaPdf.invalido) {
-        if (mounted) {
-          setState(() => _ocupado = null);
-          _avisar(e.mensaje);
-        }
-        return;
+      listo = await prepararPdf(elegido);
+    } on PdfRechazado catch (e) {
+      if (mounted) {
+        setState(() => _ocupado = null);
+        _avisar(e.mensaje);
       }
-      // Con contraseña se puede guardar igual; sin lector (web) también.
-      if (e.problema == ProblemaPdf.conClave) aviso = e.mensaje;
+      return;
     }
+    // Si la persona salió mientras se leía, Guardar no se abre encima de la llave.
+    await cerrojo.esperarAbierto();
     if (!mounted) return;
     setState(() => _ocupado = null);
-    Navigator.of(context).pushNamed(
-      AppRoutes.guardar,
-      arguments: PdfSubido(
-        bytes: elegido.bytes,
-        paginas: paginas,
-        nombreArchivo: elegido.nombre,
-        portada: portada,
-        aviso: aviso,
-      ),
-    );
+    Navigator.of(context).pushNamed(AppRoutes.guardar, arguments: listo);
   }
 
   /// Galería (una o varias fotos) → Tus páginas, para revisarlas.
@@ -207,7 +182,7 @@ class _AgregarScreenState extends State<AgregarScreen> {
                         style: AppText.bold(16, color: AppColors.verdeTexto),
                       ),
                       Text(
-                        'Descárgalo desde WhatsApp y súbelo aquí con «Subir un PDF» o «Fotos de la galería».',
+                        'En WhatsApp, toca Compartir y elige Tu Cajón. También sirve desde Gmail, Drive o tu galería.',
                         style: AppText.body(15, color: AppColors.verdeTextoSuave, height: 1.45),
                       ),
                     ],

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Ícono adaptable (Android 8 en adelante): cada celular lo recorta con su
+     forma (círculo, cuadrado redondeado, gota…). Las imágenes salen de
+     assets/icono/icono.png con tool/generar_iconos.dart. -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/ic_launcher_background" />
+    <foreground android:drawable="@mipmap/ic_launcher_foreground" />
+    <!-- Íconos temáticos (Android 13+): el cajón en un solo color. -->
+    <monochrome android:drawable="@drawable/ic_launcher_monochrome" />
+</adaptive-icon>

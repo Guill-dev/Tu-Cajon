@@ -3,6 +3,7 @@ package com.tucajon.tu_cajon
 import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.Intent
+import android.os.Bundle
 import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -12,8 +13,25 @@ import java.io.File
 // FragmentActivity: la necesita el diálogo de huella, rostro o PIN (local_auth).
 class MainActivity : FlutterFragmentActivity() {
 
+    /** Lo que llega desde "Compartir → Tu Cajón" (ver ArchivosRecibidos.kt). */
+    private val recibidos by lazy { ArchivosRecibidos(applicationContext) }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        // Se abrió desde "Compartir" (y no es Android restaurando la app).
+        if (savedInstanceState == null) recibidos.recibir(intent)
+    }
+
+    // La app ya estaba abierta: con launchMode="singleTask" el envío llega aquí,
+    // a la misma app, en vez de abrir una segunda copia encima de WhatsApp.
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        recibidos.recibir(intent)
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        recibidos.registrar(flutterEngine.dartExecutor.binaryMessenger)
         // Lector de los PDF que se suben (ver LectorPdf.kt).
         LectorPdf(applicationContext).registrar(flutterEngine.dartExecutor.binaryMessenger)
         // Canal con lib/core/compartir/compartidor.dart.

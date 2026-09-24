@@ -102,15 +102,7 @@ class _DetalleScreenState extends State<DetalleScreen> with ToastMixin {
                           onSinFoto: () => showToast('Este documento de ejemplo no tiene foto.'),
                         ),
                         const SizedBox(height: 14),
-                        _Datos(
-                          filas: [
-                            ('Carpeta', d.categoria.etiqueta),
-                            ('Guardado', d.guardadoTexto),
-                            ('Archivo', d.detalleCompleto),
-                            ('Vencimiento', d.vencimientoTexto),
-                          ],
-                        ),
-                        const SizedBox(height: 14),
+                        //  Botones primero
                         Row(
                           spacing: 8,
                           children: [
@@ -136,6 +128,16 @@ class _DetalleScreenState extends State<DetalleScreen> with ToastMixin {
                                 onTap: () => _eliminar(d),
                               ),
                             ),
+                          ],
+                        ),
+                        const SizedBox(height: 14),
+                        //  Atributos después
+                        _Datos(
+                          filas: [
+                            ('Carpeta', d.categoria.etiqueta),
+                            ('Guardado', d.guardadoTexto),
+                            ('Archivo', d.detalleCompleto),
+                            ('Vencimiento', d.vencimientoTexto),
                           ],
                         ),
                       ],

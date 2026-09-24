@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/archivos/buzon.dart';
 import '../../data/models/documento.dart';
 import '../../features/agregar/agregar_screen.dart';
 import '../../features/bienvenida/bienvenida_screen.dart';
@@ -15,6 +16,7 @@ import '../../features/paginas/paginas_screen.dart';
 import '../../features/perfil/agregar_perfil_screen.dart';
 import '../../features/preguntar/preguntar_screen.dart';
 import '../../features/proteccion/proteccion_screen.dart';
+import '../../features/recibir/recibir_screen.dart';
 
 /// Nombres de todas las rutas. El comentario dice qué artboard del diseño es.
 abstract final class AppRoutes {
@@ -27,6 +29,7 @@ abstract final class AppRoutes {
   static const agregar = '/agregar'; // 8 · Agregar documento
   static const escanear = '/escanear'; // 9 · Escanear
   static const paginas = '/paginas'; // Tus páginas (fotos de la galería)
+  static const recibir = '/recibir'; // Lo que llega por "Compartir → Tu Cajón"
   static const guardar = '/guardar'; // 10 · Guardar
   static const preguntar = '/preguntar'; // 11 · Pregúntale a tu cajón
   static const nuevoPerfil = '/perfil/nuevo'; // 12 · Nuevo perfil
@@ -47,6 +50,8 @@ abstract final class AppRoutes {
       escanear => EscanearScreen(paginasPrevias: args is List<Uint8List> ? args : const []),
       // Tus páginas: fotos elegidas en la galería.
       paginas => PaginasScreen(entrada: args is EntradaPaginas ? args : const EntradaPaginas()),
+      // Recibir: lo que se está leyendo del buzón.
+      recibir => RecibirScreen(envio: args is Future<Envio> ? args : Future.value(const Envio())),
       // Guardar: un PDF subido, fotos de la galería o de la cámara, o cuántas
       // páginas simuladas hubo.
       guardar => switch (args) {
