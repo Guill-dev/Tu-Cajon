@@ -14,6 +14,7 @@ import 'package:tu_cajon/data/copia/nube.dart';
 import 'package:tu_cajon/data/compartir/pdf_documento.dart';
 import 'package:tu_cajon/core/router/app_routes.dart';
 import 'package:tu_cajon/core/theme/app_colors.dart';
+import 'package:tu_cajon/core/theme/tema_del_celular.dart';
 import 'package:tu_cajon/core/seguridad/llave_celular.dart';
 import 'package:tu_cajon/data/models/categoria.dart';
 import 'package:tu_cajon/data/models/documento.dart';
@@ -158,6 +159,81 @@ void main() {
       expect(AppColors.deNoche, isFalse);
       expect(fondoDe(tester), Paleta.dia.fondo);
       expect(tester.takeException(), isNull);
+    });
+
+    Future<MemoriaCajonRepositorio> abrirAjustes(
+      WidgetTester tester, {
+      Apariencia apariencia = Apariencia.celular,
+    }) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final repo = MemoriaCajonRepositorio();
+      await tester.pumpWidget(
+        TuCajonApp(
+          repo: repo,
+          llave: LlaveSimulada(),
+          rutaInicial: AppRoutes.ajustes,
+          apariencia: apariencia,
+        ),
+      );
+      await tester.pump(const Duration(seconds: 1));
+      return repo;
+    }
+
+    Future<void> tocar(WidgetTester tester, String opcion) async {
+      await tester.tap(find.text(opcion));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+    }
+
+    testWidgets('En Ajustes se elige siempre oscuro, siempre claro o igual que el celular', (tester) async {
+      final repo = await abrirAjustes(tester);
+      expect(find.text('Apariencia'), findsOneWidget);
+      expect(AppColors.deNoche, isFalse);
+
+      // Siempre oscuro: aunque el celular esté de día, y se guarda.
+      await tocar(tester, 'Siempre oscuro');
+      expect(AppColors.deNoche, isTrue);
+      expect(fondoDe(tester), Paleta.noche.fondo);
+      expect(await repo.leerAjuste(Apariencia.clave), 'oscura');
+
+      // Siempre claro: aunque el celular pase a modo oscuro.
+      tester.platformDispatcher.platformBrightnessTestValue = Brightness.dark;
+      addTearDown(tester.platformDispatcher.clearPlatformBrightnessTestValue);
+      await tocar(tester, 'Siempre claro');
+      expect(AppColors.deNoche, isFalse);
+      expect(await repo.leerAjuste(Apariencia.clave), 'clara');
+
+      // Igual que el celular (que ahora está de noche), y se borra el ajuste.
+      await tocar(tester, 'Igual que el celular');
+      expect(AppColors.deNoche, isTrue);
+      expect(await repo.leerAjuste(Apariencia.clave), isNull);
+      tester.platformDispatcher.platformBrightnessTestValue = Brightness.light;
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(AppColors.deNoche, isFalse);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('Lo elegido se respeta al abrir y no cambia con el celular', (tester) async {
+      tester.platformDispatcher.platformBrightnessTestValue = Brightness.dark;
+      addTearDown(tester.platformDispatcher.clearPlatformBrightnessTestValue);
+      await abrirAjustes(tester, apariencia: Apariencia.clara);
+      expect(AppColors.deNoche, isFalse);
+      expect(fondoDe(tester), Paleta.dia.fondo);
+      tester.platformDispatcher.platformBrightnessTestValue = Brightness.light;
+      await tester.pump();
+      tester.platformDispatcher.platformBrightnessTestValue = Brightness.dark;
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(AppColors.deNoche, isFalse);
+    });
+
+    test('El ajuste guardado se lee bien (y sin ajuste, igual que el celular)', () {
+      expect(Apariencia.deTexto('oscura'), Apariencia.oscura);
+      expect(Apariencia.deTexto('clara'), Apariencia.clara);
+      expect(Apariencia.deTexto(null), Apariencia.celular);
+      expect(Apariencia.deTexto('otra cosa'), Apariencia.celular);
     });
   });
 

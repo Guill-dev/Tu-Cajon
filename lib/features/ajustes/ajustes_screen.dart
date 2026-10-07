@@ -8,6 +8,7 @@ import '../../core/icons/app_icons.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_decor.dart';
 import '../../core/theme/app_text.dart';
+import '../../core/theme/tema_del_celular.dart';
 import '../../data/copia/copia_de_seguridad.dart';
 import '../../data/copia/nube.dart';
 import '../../shared/widgets/buttons.dart';
@@ -18,7 +19,8 @@ import '../../shared/widgets/tc_icon.dart';
 import '../../shared/widgets/tc_tap.dart';
 import '../../shared/widgets/toast.dart';
 
-/// Ajustes. Por ahora: la copia de seguridad en Google Drive.
+/// Ajustes: cómo se ve la app (de día o de noche) y la copia de seguridad en
+/// Google Drive.
 ///
 /// Todo lo que muestra sale de `CopiaDeSeguridad.estado`, así que se
 /// actualiza solo mientras la copia avanza.
@@ -179,6 +181,10 @@ class _AjustesScreenState extends State<AjustesScreen> with ToastMixin {
                       builder: (context, e, _) => ListView(
                         padding: EdgeInsets.fromLTRB(20, 6, 20, 32 + MediaQuery.paddingOf(context).bottom),
                         children: [
+                          Semantics(header: true, child: Text('Apariencia', style: AppText.bold(18))),
+                          const SizedBox(height: 12),
+                          const _TarjetaApariencia(),
+                          const SizedBox(height: 28),
                           Semantics(header: true, child: Text('Copia de seguridad', style: AppText.bold(18))),
                           const SizedBox(height: 12),
                           if (_copia.nube.deprueba) ...[const _AvisoDePrueba(), const SizedBox(height: 12)],
@@ -225,6 +231,93 @@ String _cuando(DateTime f, DateTime ahora) {
   if (dias == 0) return 'hoy, $hora';
   if (dias == 1) return 'ayer, $hora';
   return f.year == ahora.year ? Formato.diaMes(f) : Formato.fechaLarga(f);
+}
+
+/// De día, de noche o igual que el celular. Se aplica en el momento.
+class _TarjetaApariencia extends StatelessWidget {
+  const _TarjetaApariencia();
+
+  static const _iconos = {
+    Apariencia.celular: AppIcons.celular,
+    Apariencia.clara: AppIcons.sol,
+    Apariencia.oscura: AppIcons.luna,
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final scope = AparienciaScope.of(context);
+    return Container(
+      decoration: AppDecor.tarjeta(),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (final a in Apariencia.values) ...[
+            if (a.index > 0) Divider(height: 1, color: AppColors.divisor),
+            Semantics(
+              inMutuallyExclusiveGroup: true,
+              checked: a == scope.apariencia,
+              label: '${a.etiqueta}. ${a.explicacion}',
+              excludeSemantics: true,
+              child: TcTap(
+                onTap: () => scope.cambiar(a),
+                radius: 0,
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+                child: Row(
+                  spacing: 14,
+                  children: [
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(color: AppColors.primarioSuave, shape: BoxShape.circle),
+                      alignment: Alignment.center,
+                      child: TcIcon(_iconos[a]!, size: 21, color: AppColors.primario),
+                    ),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        spacing: 2,
+                        children: [
+                          Text(a.etiqueta, style: AppText.bold(16)),
+                          Text(a.explicacion, style: AppText.secondary(14, height: 1.35)),
+                        ],
+                      ),
+                    ),
+                    _Elegida(elegida: a == scope.apariencia),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// El circulito de la opción: relleno con un visto si está elegida.
+class _Elegida extends StatelessWidget {
+  const _Elegida({required this.elegida});
+
+  final bool elegida;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      width: 26,
+      height: 26,
+      decoration: BoxDecoration(
+        color: elegida ? AppColors.primario : Colors.transparent,
+        shape: BoxShape.circle,
+        border: Border.all(color: elegida ? AppColors.primario : AppColors.bordeInput, width: 2),
+      ),
+      alignment: Alignment.center,
+      child: elegida
+          ? TcIcon(AppIcons.check, size: 16, color: AppColors.sobrePrimario, strokeWidth: 2.6)
+          : null,
+    );
+  }
 }
 
 class _AvisoDePrueba extends StatelessWidget {

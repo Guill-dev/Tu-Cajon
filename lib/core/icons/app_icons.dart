@@ -26,6 +26,11 @@ abstract final class AppIcons {
   static const huellaBoton =
       'M3 12a9 9 0 0 1 15.5-6.2 M5.5 19c.6-1.8 1-4.2 1-7a5.5 5.5 0 0 1 .6-2.5 M9.5 6.9A5.5 5.5 0 0 1 17.5 12c0 1 0 2-.1 3 M12 11.5c0 3-.3 6.4-1.4 9.5 M20.6 9.5c.3 1.4.4 3.4.2 6';
   static const celular = 'M8 3h8a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z M11 18h2';
+
+  /// Sol y luna (Ajustes → Apariencia).
+  static const sol =
+      'M12 8a4 4 0 1 0 0 8a4 4 0 1 0 0-8z M12 2.5v2 M12 19.5v2 M2.5 12h2 M19.5 12h2 M5.3 5.3l1.4 1.4 M17.3 17.3l1.4 1.4 M5.3 18.7l1.4-1.4 M17.3 6.7l1.4-1.4';
+  static const luna = 'M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z';
   static const escudo = 'M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z M9 12l2 2 4-4';
 
   /// Nube con una flecha hacia arriba (copia de seguridad).

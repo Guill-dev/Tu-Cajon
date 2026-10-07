@@ -40,7 +40,8 @@ lib/
 │   │   ├── app_text.dart      Tipografía: Plus Jakarta Sans (títulos gruesos y texto).
 │   │   ├── app_decor.dart     Tarjetas: radio, sombras suaves y sombras de color.
 │   │   ├── app_theme.dart     ThemeData de Material (de día y de noche).
-│   │   └── tema_del_celular.dart  Sigue el modo del celular y cambia la app cuando cambia.
+│   │   └── tema_del_celular.dart  De día o de noche: igual que el celular (y cambia con él),
+│   │                              o siempre claro u oscuro (Ajustes → Apariencia).
 │   ├── icons/app_icons.dart   Los íconos del diseño como trazos SVG (idénticos al prototipo).
 │   ├── router/app_routes.dart Nombres de las rutas y qué pantalla abre cada una.
 │   ├── seguridad/             Llave del celular (huella/PIN) y cerrojo al salir de la app.
@@ -87,7 +88,7 @@ lib/
     ├── guardar/               10 · Guardar (la lectura llena nombre, tipo y vencimiento)
     ├── texto/                 Lo que dice el documento: todo el texto leído, para copiarlo
     ├── preguntar/             11 · Pregúntale a tu cajón (chat IA)
-    ├── ajustes/               Ajustes: la copia de seguridad en Google Drive
+    ├── ajustes/               Ajustes: apariencia (día/noche) y copia de seguridad en Google Drive
     ├── recuperar/             Recuperar mi cajón (al estrenar celular)
     ├── perfil/                12 · Nuevo perfil (Mamá, mascotas…)
     └── catalogo/              Solo desarrollo: lista de todas las pantallas
@@ -128,7 +129,8 @@ Piezas del estilo: `TwoToneTitle` y `BackHeader` en `shared/widgets/common.dart`
 
 La app se ve **igual que el celular**: si está en modo oscuro, de noche; si no, de día. Y cambia
 en el momento en que el celular cambia (a mano o solo, a la hora programada), sin cerrar ni
-reiniciar la pantalla en que estás.
+reiniciar la pantalla en que estás. En **Ajustes → Apariencia** también se puede elegir
+**Siempre claro** o **Siempre oscuro**.
 
 - **Dos paletas** (`Paleta.dia` y `Paleta.noche` en `app_colors.dart`). La de noche usa el azul
   marino de la cámara de fondo, tarjetas un poco más claras y el acento azul-violeta aclarado
@@ -137,9 +139,11 @@ reiniciar la pantalla en que estás.
 - **`AppColors`** entrega los colores de la paleta en uso, así que las pantallas no cambian:
   siguen usando `AppColors.primario`, `AppColors.fondo`… Lo que es igual siempre (la cámara, la
   cédula dibujada, el color de las notificaciones) sigue fijo.
-- **`TemaDelCelular`** (`core/theme/tema_del_celular.dart`) escucha al celular; al cambiar de
-  modo cambia la paleta y vuelve a construir y a pintar toda la app (también los dibujos y las
-  pantallas que están debajo de la actual).
+- **`TemaDelCelular`** (`core/theme/tema_del_celular.dart`) escucha al celular y a la
+  `Apariencia` elegida; al cambiar de modo cambia la paleta y vuelve a construir y a pintar toda
+  la app (también los dibujos y las pantallas que están debajo de la actual). Lo elegido se guarda
+  en los ajustes de la base (`apariencia`: `clara`, `oscura` o nada) y se lee antes de abrir la
+  app, para que no destelle el otro modo.
 - **Las carpetas** (Identidad, Salud…) tienen su color de noche, más claro, y su ficha es un
   tinte de ese color.
 - **Al abrir**, Android pinta la ventana con el fondo de la app según el modo

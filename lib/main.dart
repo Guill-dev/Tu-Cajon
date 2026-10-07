@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'app.dart';
+import 'core/theme/tema_del_celular.dart';
 import 'core/copia/llaves_de_copia.dart';
 import 'core/copia/red.dart';
 import 'data/copia/copia_de_seguridad.dart';
@@ -28,7 +29,9 @@ Future<void> _arrancar() async {
       llaves: LlavesDeCopia.paraEstaPlataforma(),
       red: Red.paraEstaPlataforma(),
     );
-    runApp(TuCajonApp(repo: repo, copia: copia));
+    // De día o de noche: se lee antes de abrir, para que no destelle el otro modo.
+    final apariencia = Apariencia.deTexto(await repo.leerAjuste(Apariencia.clave));
+    runApp(TuCajonApp(repo: repo, copia: copia, apariencia: apariencia));
   } catch (e, pila) {
     // Si la base no abre, se avisa en pantalla en vez de quedarse congelada.
     debugPrint('No se pudo abrir la base de datos: $e\n$pila');

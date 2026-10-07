@@ -34,6 +34,7 @@ class TuCajonApp extends StatefulWidget {
     CopiaDeSeguridad? copia,
     LectorDeTexto? lectorDeTexto,
     this.reloj,
+    this.apariencia = Apariencia.celular,
     this.rutaInicial = AppRoutes.carga,
     this.argumentos,
   }) : llave = llave ?? LlaveCelular.paraEstaPlataforma(),
@@ -69,6 +70,9 @@ class TuCajonApp extends StatefulWidget {
 
   /// Para pruebas: la hora que usa el cerrojo.
   final DateTime Function()? reloj;
+
+  /// De día, de noche o igual que el celular (lo elegido en Ajustes).
+  final Apariencia apariencia;
 
   /// Para pruebas: abrir directamente otra pantalla.
   final String rutaInicial;
@@ -147,8 +151,14 @@ class _TuCajonAppState extends State<TuCajonApp> {
                     copia: widget.copia,
                     child: LecturaScope(
                       lectura: _lectura,
-                      // De día o de noche, igual que el celular (y cambia con él).
+                      // De día o de noche: igual que el celular (y cambia con él), o lo
+                      // que se eligió en Ajustes.
                       child: TemaDelCelular(
+                        apariencia: widget.apariencia,
+                        alCambiar: (a) => widget.repo.guardarAjuste(
+                          Apariencia.clave,
+                          a == Apariencia.celular ? null : a.name,
+                        ),
                         builder: (context, paleta) => AnnotatedRegion<SystemUiOverlayStyle>(
                           value: (paleta.deNoche ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark)
                               .copyWith(statusBarColor: Colors.transparent),
