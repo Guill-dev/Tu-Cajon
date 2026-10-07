@@ -1,6 +1,5 @@
 import 'package:flutter/widgets.dart';
 
-import '../core/theme/app_colors.dart';
 import 'models/categoria.dart';
 import 'models/documento.dart';
 import 'models/perfil.dart';
@@ -27,7 +26,8 @@ abstract final class DatosEjemplo {
     id: Perfil.idPropio,
     nombre: 'Tú',
     inicial: inicialDe(nombreUsuario),
-    color: AppColors.primario,
+    // El azul violeta de siempre (el perfil guarda su color: no cambia de noche).
+    color: coloresPerfil.first.$1,
     esPropio: true,
   );
 

@@ -27,8 +27,13 @@ abstract final class AppText {
   );
 
   /// Título grueso (800).
-  static TextStyle display(double size, {Color color = AppColors.titulo, double height = 1.15}) =>
-      _estilo(size: size, weight: FontWeight.w800, height: height, color: color, letterSpacing: -0.4);
+  static TextStyle display(double size, {Color? color, double height = 1.15}) => _estilo(
+    size: size,
+    weight: FontWeight.w800,
+    height: height,
+    color: color ?? AppColors.titulo,
+    letterSpacing: -0.4,
+  );
 
   /// Primera línea de los títulos en dos tonos ("Hola," en gris claro).
   static TextStyle displayLight(double size, {double height = 1.15}) => _estilo(
@@ -42,7 +47,7 @@ abstract final class AppText {
   /// Texto de cuerpo.
   static TextStyle body(
     double size, {
-    Color color = AppColors.texto,
+    Color? color,
     bool bold = false,
     double? height,
     double? letterSpacing,
@@ -50,11 +55,11 @@ abstract final class AppText {
     size: size,
     weight: bold ? FontWeight.w700 : FontWeight.w500,
     height: height,
-    color: color,
+    color: color ?? AppColors.texto,
     letterSpacing: letterSpacing,
   );
 
-  static TextStyle bold(double size, {Color color = AppColors.texto, double? height}) =>
+  static TextStyle bold(double size, {Color? color, double? height}) =>
       body(size, color: color, bold: true, height: height);
 
   static TextStyle secondary(double size, {double? height}) =>

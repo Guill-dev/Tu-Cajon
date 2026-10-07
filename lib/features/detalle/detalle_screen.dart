@@ -126,7 +126,7 @@ class _DetalleScreenState extends State<DetalleScreen> with ToastMixin {
       stream: _doc,
       builder: (context, snap) {
         if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
-          return const Scaffold(backgroundColor: AppColors.fondo);
+          return Scaffold(backgroundColor: AppColors.fondo);
         }
         final d = snap.data;
         if (d == null) return const _SinDocumento();
@@ -336,7 +336,7 @@ class _VistaPreviaState extends State<_VistaPrevia> {
             ),
           );
         } else if (!snap.hasData) {
-          contenido = const Center(child: CircularProgressIndicator(color: AppColors.primario));
+          contenido = Center(child: CircularProgressIndicator(color: AppColors.primario));
         } else if (paginas.isEmpty) {
           contenido = const _HojaDibujada();
         } else {
@@ -391,12 +391,12 @@ class _VistaPreviaState extends State<_VistaPrevia> {
                 spacing: 6,
                 children: [
                   if (abriendo)
-                    const SizedBox.square(
+                    SizedBox.square(
                       dimension: 16,
                       child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primario),
                     )
                   else
-                    const TcIcon(AppIcons.ojo, size: 18, color: AppColors.texto),
+                    TcIcon(AppIcons.ojo, size: 18, color: AppColors.texto),
                   Text(abriendo ? 'Abriendo…' : 'Ver completo', style: AppText.bold(14)),
                 ],
               ),
@@ -419,7 +419,7 @@ class _HojaDibujada extends StatelessWidget {
         width: 190,
         height: 246,
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           color: AppColors.superficie,
           borderRadius: BorderRadius.all(Radius.circular(4)),
           boxShadow: [BoxShadow(color: Color(0x293C2814), blurRadius: 18, offset: Offset(0, 6))],
@@ -452,9 +452,7 @@ class _Datos extends StatelessWidget {
             Container(
               constraints: const BoxConstraints(minHeight: 46),
               decoration: BoxDecoration(
-                border: i < filas.length - 1
-                    ? const Border(bottom: BorderSide(color: AppColors.divisor))
-                    : null,
+                border: i < filas.length - 1 ? Border(bottom: BorderSide(color: AppColors.divisor)) : null,
               ),
               child: Row(
                 children: [
@@ -534,12 +532,12 @@ class _LoQueDiceState extends State<_LoQueDice> {
               spacing: 8,
               children: [
                 if (_leyendo)
-                  const SizedBox.square(
+                  SizedBox.square(
                     dimension: 18,
                     child: CircularProgressIndicator(strokeWidth: 2.2, color: AppColors.primario),
                   )
                 else
-                  const TcIcon(AppIcons.destelloSolo, size: 18, color: AppColors.primario),
+                  TcIcon(AppIcons.destelloSolo, size: 18, color: AppColors.primario),
                 Text(
                   _leyendo ? 'Leyendo…' : 'Leer ahora',
                   style: AppText.bold(15, color: AppColors.primario),
@@ -575,7 +573,7 @@ class _LoQueDiceState extends State<_LoQueDice> {
             spacing: 6,
             children: [
               Text('Ver todo el texto', style: AppText.bold(15, color: AppColors.primario)),
-              const TcIcon(AppIcons.siguiente, size: 16, color: AppColors.primario),
+              TcIcon(AppIcons.siguiente, size: 16, color: AppColors.primario),
             ],
           ),
         ),
@@ -604,7 +602,7 @@ class _LoQueDiceState extends State<_LoQueDice> {
                     borderRadius: BorderRadius.circular(11),
                   ),
                   alignment: Alignment.center,
-                  child: const TcIcon(AppIcons.destelloSolo, size: 19, color: AppColors.ambar),
+                  child: TcIcon(AppIcons.destelloSolo, size: 19, color: AppColors.ambar),
                 ),
                 Expanded(child: Text('Lo que dice el documento', style: AppText.bold(16))),
               ],
@@ -645,20 +643,18 @@ class _SinDocumento extends StatelessWidget {
 }
 
 class _Accion extends StatelessWidget {
-  const _Accion({
-    required this.icono,
-    required this.etiqueta,
-    required this.onTap,
-    this.color = AppColors.texto,
-  });
+  const _Accion({required this.icono, required this.etiqueta, required this.onTap, this.color});
 
   final String icono;
   final String etiqueta;
   final VoidCallback onTap;
-  final Color color;
+
+  /// Sin él, el color del texto.
+  final Color? color;
 
   @override
   Widget build(BuildContext context) {
+    final color = this.color ?? AppColors.texto;
     return TcTap(
       onTap: onTap,
       color: AppColors.superficie,

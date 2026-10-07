@@ -281,7 +281,7 @@ class _RecuperarScreenState extends State<RecuperarScreen> {
                     borderRadius: BorderRadius.circular(16),
                   ),
                   alignment: Alignment.center,
-                  child: const TcIcon(AppIcons.nube, size: 26, color: AppColors.primario),
+                  child: TcIcon(AppIcons.nube, size: 26, color: AppColors.primario),
                 ),
                 const SizedBox(width: 14),
                 Expanded(

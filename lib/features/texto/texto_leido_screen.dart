@@ -67,7 +67,7 @@ class TextoLeidoScreen extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         spacing: 10,
                         children: [
-                          const TcIcon(AppIcons.destelloSolo, size: 20, color: AppColors.ambar),
+                          TcIcon(AppIcons.destelloSolo, size: 20, color: AppColors.ambar),
                           Expanded(
                             child: Text(
                               'Lo leyó la IA aquí en tu celular. Puede equivocarse en alguna letra: '
@@ -176,7 +176,7 @@ class FilaNumero extends StatelessWidget {
             width: 48,
             height: 48,
             semanticLabel: 'Copiar el número $numero',
-            child: const Center(child: TcIcon(AppIcons.copiar, size: 20, color: AppColors.primario)),
+            child: Center(child: TcIcon(AppIcons.copiar, size: 20, color: AppColors.primario)),
           ),
         ],
       ),

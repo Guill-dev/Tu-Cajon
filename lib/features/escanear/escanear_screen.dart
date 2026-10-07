@@ -657,13 +657,13 @@ class _EscanearScreenState extends State<EscanearScreen>
                                     height: 48,
                                     padding: const EdgeInsets.symmetric(horizontal: 14),
                                     child: _terminando
-                                        ? const Center(
+                                        ? Center(
                                             widthFactor: 1,
                                             child: SizedBox.square(
                                               dimension: 22,
                                               child: CircularProgressIndicator(
                                                 strokeWidth: 2.5,
-                                                color: AppColors.primario,
+                                                color: AppColors.camaraPrimario,
                                               ),
                                             ),
                                           )
@@ -1093,12 +1093,12 @@ class _Miniatura extends StatelessWidget {
                   ),
                   child: imagen == null
                       ? (preparando
-                            ? const Center(
+                            ? Center(
                                 child: SizedBox.square(
                                   dimension: 18,
                                   child: CircularProgressIndicator(
                                     strokeWidth: 2.5,
-                                    color: AppColors.primario,
+                                    color: AppColors.camaraPrimario,
                                   ),
                                 ),
                               )
@@ -1112,7 +1112,7 @@ class _Miniatura extends StatelessWidget {
                   child: Container(
                     width: 22,
                     height: 22,
-                    decoration: const BoxDecoration(color: AppColors.primario, shape: BoxShape.circle),
+                    decoration: BoxDecoration(color: AppColors.camaraPrimario, shape: BoxShape.circle),
                     alignment: Alignment.center,
                     child: Text('$numero', style: AppText.bold(12, color: Colors.white)),
                   ),
@@ -1161,7 +1161,7 @@ class _Obturador extends StatelessWidget {
               decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
               padding: const EdgeInsets.all(18),
               child: procesando
-                  ? const CircularProgressIndicator(strokeWidth: 3, color: AppColors.primario)
+                  ? CircularProgressIndicator(strokeWidth: 3, color: AppColors.camaraPrimario)
                   : null,
             ),
           ),

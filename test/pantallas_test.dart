@@ -13,6 +13,7 @@ import 'package:tu_cajon/data/copia/copia_de_seguridad.dart';
 import 'package:tu_cajon/data/copia/nube.dart';
 import 'package:tu_cajon/data/compartir/pdf_documento.dart';
 import 'package:tu_cajon/core/router/app_routes.dart';
+import 'package:tu_cajon/core/theme/app_colors.dart';
 import 'package:tu_cajon/core/seguridad/llave_celular.dart';
 import 'package:tu_cajon/data/models/categoria.dart';
 import 'package:tu_cajon/data/models/documento.dart';
@@ -100,7 +101,65 @@ void main() {
       expect(tester.takeException(), isNull);
       await tester.pump(const Duration(seconds: 5)); // termina animaciones y la llave simulada
     });
+
+    testWidgets('La pantalla "$nombre" se dibuja sin errores de noche', (tester) async {
+      tester.platformDispatcher.platformBrightnessTestValue = Brightness.dark;
+      addTearDown(() {
+        tester.platformDispatcher.clearPlatformBrightnessTestValue();
+        AppColors.paleta = Paleta.dia;
+      });
+      await abrir(tester, ruta, args: args);
+      expect(AppColors.deNoche, isTrue);
+      expect(tester.takeException(), isNull);
+      await tester.pump(const Duration(seconds: 5));
+    });
   }
+
+  group('De día o de noche, igual que el celular', () {
+    tearDown(() => AppColors.paleta = Paleta.dia);
+
+    Color fondoDe(WidgetTester tester) =>
+        tester.widget<Scaffold>(find.byType(Scaffold).first).backgroundColor ??
+        Theme.of(tester.element(find.byType(Scaffold).first)).scaffoldBackgroundColor;
+
+    testWidgets('Abre de noche si el celular está de noche', (tester) async {
+      tester.platformDispatcher.platformBrightnessTestValue = Brightness.dark;
+      addTearDown(tester.platformDispatcher.clearPlatformBrightnessTestValue);
+      await abrir(tester, AppRoutes.cajon, args: CajonTab.inicio);
+      expect(fondoDe(tester), Paleta.noche.fondo);
+      // El texto también: los títulos van claros sobre el fondo oscuro.
+      final hola = tester.widget<Text>(find.text('Marta'));
+      expect(hola.style?.color, Paleta.noche.titulo);
+    });
+
+    testWidgets('Cambia en el momento en que el celular cambia, sin perder la pantalla', (tester) async {
+      await abrir(tester, AppRoutes.cajon, args: CajonTab.inicio);
+      await tester.tap(find.byType(TextField));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.text('Cancelar'), findsOneWidget);
+      expect(tester.widget<Text>(find.text('Cancelar')).style?.color, isNot(Paleta.noche.primario));
+
+      // Se hace de noche (a mano o a la hora programada del celular).
+      tester.platformDispatcher.platformBrightnessTestValue = Brightness.dark;
+      addTearDown(tester.platformDispatcher.clearPlatformBrightnessTestValue);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(AppColors.deNoche, isTrue);
+      expect(fondoDe(tester), Paleta.noche.fondo);
+      // La búsqueda sigue abierta (no se reinició la pantalla) y con los colores nuevos.
+      expect(find.text('Cancelar'), findsOneWidget);
+      final textos = tester.widgetList<Text>(find.byType(Text)).where((t) => t.style?.color != null);
+      expect(textos.any((t) => t.style!.color == Paleta.dia.texto), isFalse);
+
+      // Y de vuelta al día.
+      tester.platformDispatcher.platformBrightnessTestValue = Brightness.light;
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(AppColors.deNoche, isFalse);
+      expect(fondoDe(tester), Paleta.dia.fondo);
+      expect(tester.takeException(), isNull);
+    });
+  });
 
   testWidgets('Flujo de entrada: carga → nombre → llave → mi cajón', (tester) async {
     tester.view.physicalSize = const Size(390, 844);

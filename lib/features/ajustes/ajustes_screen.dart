@@ -280,7 +280,7 @@ class _TarjetaCopia extends StatelessWidget {
                   borderRadius: BorderRadius.circular(16),
                 ),
                 alignment: Alignment.center,
-                child: const TcIcon(AppIcons.nube, size: 26, color: AppColors.primario),
+                child: TcIcon(AppIcons.nube, size: 26, color: AppColors.primario),
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -355,7 +355,7 @@ class _TarjetaCopia extends StatelessWidget {
       return _Linea(icono: AppIcons.cerrar, color: AppColors.rojo, texto: problema);
     }
     if (e.esperandoWifi) {
-      return const _Linea(
+      return _Linea(
         icono: AppIcons.reloj,
         color: AppColors.ambar,
         texto: 'La copia automática espera el Wi-Fi para no gastar tus datos.',
@@ -456,7 +456,7 @@ class _Opciones extends StatelessWidget {
               ),
             ),
           ),
-          const Divider(height: 1, color: AppColors.divisor),
+          Divider(height: 1, color: AppColors.divisor),
           Padding(
             padding: const EdgeInsets.fromLTRB(18, 16, 16, 16),
             child: Row(
@@ -480,7 +480,7 @@ class _Opciones extends StatelessWidget {
               ],
             ),
           ),
-          const Divider(height: 1, color: AppColors.divisor),
+          Divider(height: 1, color: AppColors.divisor),
           TcTap(
             onTap: onDesconectar,
             radius: 0,

@@ -140,7 +140,7 @@ class _BotonPeligro extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
             child: Center(
               widthFactor: 1,
-              child: Text(etiqueta, style: AppText.bold(14, color: Colors.white)),
+              child: Text(etiqueta, style: AppText.bold(14, color: AppColors.sobreRojo)),
             ),
           ),
         ),

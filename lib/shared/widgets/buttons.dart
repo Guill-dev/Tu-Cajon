@@ -18,7 +18,7 @@ class PrimaryButton extends StatelessWidget {
     this.icon,
     this.trailingIcon,
     this.disabledLabel,
-    this.color = AppColors.primario,
+    this.color,
     this.height = 60,
   });
 
@@ -27,12 +27,16 @@ class PrimaryButton extends StatelessWidget {
   final String? icon;
   final String? trailingIcon;
   final String? disabledLabel;
-  final Color color;
+
+  /// El fondo (con texto blanco); sin él, el acento.
+  final Color? color;
   final double height;
 
   @override
   Widget build(BuildContext context) {
     final enabled = onTap != null;
+    final color = this.color ?? AppColors.primario;
+    final frente = this.color == null ? AppColors.sobrePrimario : Colors.white;
     return AnimatedSwitcher(
       duration: const Duration(milliseconds: 180),
       child: enabled
@@ -47,20 +51,17 @@ class PrimaryButton extends StatelessWidget {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  if (icon != null) ...[
-                    TcIcon(icon!, size: 22, color: Colors.white),
-                    const SizedBox(width: 10),
-                  ],
+                  if (icon != null) ...[TcIcon(icon!, size: 22, color: frente), const SizedBox(width: 10)],
                   Flexible(
                     child: Text(
                       label,
                       textAlign: TextAlign.center,
-                      style: AppText.bold(18, color: Colors.white),
+                      style: AppText.bold(18, color: frente),
                     ),
                   ),
                   if (trailingIcon != null) ...[
                     const SizedBox(width: 10),
-                    TcIcon(trailingIcon!, size: 22, color: Colors.white),
+                    TcIcon(trailingIcon!, size: 22, color: frente),
                   ],
                 ],
               ),
@@ -144,7 +145,10 @@ class SmallButton extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       child: Center(
         widthFactor: 1,
-        child: Text(label, style: AppText.bold(14, color: filled ? Colors.white : AppColors.primario)),
+        child: Text(
+          label,
+          style: AppText.bold(14, color: filled ? AppColors.sobrePrimario : AppColors.primario),
+        ),
       ),
     );
   }
@@ -158,8 +162,8 @@ class SquircleButton extends StatelessWidget {
     required this.icon,
     required this.semanticLabel,
     this.onTap,
-    this.color = AppColors.amarillo,
-    this.iconColor = AppColors.primario,
+    this.color,
+    this.iconColor,
     this.size = 52,
     this.iconSize = 22,
     this.extra = '',
@@ -169,8 +173,12 @@ class SquircleButton extends StatelessWidget {
   final String icon;
   final String semanticLabel;
   final VoidCallback? onTap;
-  final Color color;
-  final Color iconColor;
+
+  /// Fondo; sin él, amarillo.
+  final Color? color;
+
+  /// Ícono; sin él, el acento.
+  final Color? iconColor;
   final double size;
   final double iconSize;
   final String extra;
@@ -180,14 +188,14 @@ class SquircleButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return TcTap(
       onTap: onTap,
-      color: color,
+      color: color ?? AppColors.amarillo,
       radius: size * 0.34,
       width: size,
       height: size,
       shadow: shadow ? AppDecor.sombra : null,
       semanticLabel: semanticLabel,
       child: Center(
-        child: TcIcon(icon, size: iconSize, color: iconColor, extra: extra),
+        child: TcIcon(icon, size: iconSize, color: iconColor ?? AppColors.primario, extra: extra),
       ),
     );
   }
@@ -211,7 +219,7 @@ class ArrowButton extends StatelessWidget {
       height: size,
       shadow: AppDecor.sombraColor(AppColors.primario),
       semanticLabel: semanticLabel,
-      child: const Center(child: TcIcon(AppIcons.siguiente, size: 24, color: Colors.white)),
+      child: Center(child: TcIcon(AppIcons.siguiente, size: 24, color: AppColors.sobrePrimario)),
     );
   }
 }
@@ -223,8 +231,8 @@ class CircleIconButton extends StatelessWidget {
     required this.icon,
     required this.semanticLabel,
     this.onTap,
-    this.color = AppColors.texto,
-    this.background = AppColors.superficie,
+    this.color,
+    this.background,
     this.border = BorderSide.none,
     this.size = 48,
     this.iconSize = 22,
@@ -234,8 +242,12 @@ class CircleIconButton extends StatelessWidget {
   final String icon;
   final String semanticLabel;
   final VoidCallback? onTap;
-  final Color color;
-  final Color background;
+
+  /// Ícono; sin él, el color del texto.
+  final Color? color;
+
+  /// Fondo; sin él, el de las tarjetas.
+  final Color? background;
   final BorderSide border;
   final double size;
   final double iconSize;
@@ -245,14 +257,14 @@ class CircleIconButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return TcTap(
       onTap: onTap,
-      color: background,
+      color: background ?? AppColors.superficie,
       radius: size / 2,
       border: border,
       width: size,
       height: size,
       semanticLabel: semanticLabel,
       child: Center(
-        child: TcIcon(icon, size: iconSize, color: color, extra: extra),
+        child: TcIcon(icon, size: iconSize, color: color ?? AppColors.texto, extra: extra),
       ),
     );
   }
@@ -299,7 +311,10 @@ class PillChip extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
       child: Center(
         widthFactor: 1,
-        child: Text(label, style: AppText.bold(14, color: selected ? Colors.white : AppColors.texto)),
+        child: Text(
+          label,
+          style: AppText.bold(14, color: selected ? AppColors.sobrePrimario : AppColors.texto),
+        ),
       ),
     );
   }

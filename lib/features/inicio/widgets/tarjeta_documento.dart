@@ -30,7 +30,7 @@ class TarjetaDocumento extends StatelessWidget {
   final VoidCallback onWhatsApp;
 
   static (Color, Color) coloresTono(TonoAviso tono) => switch (tono) {
-    TonoAviso.peligro => (const Color(0xFFFDE8E6), AppColors.rojo),
+    TonoAviso.peligro => (AppColors.rojoSuave, AppColors.rojo),
     TonoAviso.advertencia => (AppColors.ambarSuave, AppColors.ambar),
     TonoAviso.info => (AppColors.primarioSuave, AppColors.primario),
     TonoAviso.calma => (AppColors.calmaFondo, AppColors.textoTerciario),

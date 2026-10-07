@@ -46,7 +46,7 @@ class TcSheet extends StatelessWidget {
                   label: onDismiss != null ? dismissLabel : null,
                   child: GestureDetector(
                     onTap: onDismiss,
-                    child: const ColoredBox(color: AppColors.scrim),
+                    child: ColoredBox(color: AppColors.scrim),
                   ),
                 ),
               ),

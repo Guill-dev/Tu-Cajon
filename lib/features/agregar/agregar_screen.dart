@@ -223,9 +223,9 @@ class _ConsejoWhatsApp extends StatelessWidget {
           Container(
             width: 44,
             height: 44,
-            decoration: const BoxDecoration(color: AppColors.superficie, shape: BoxShape.circle),
+            decoration: BoxDecoration(color: AppColors.superficie, shape: BoxShape.circle),
             alignment: Alignment.center,
-            child: const TcIcon(AppIcons.whatsapp, size: 22, color: AppColors.verde),
+            child: TcIcon(AppIcons.whatsapp, size: 22, color: AppColors.verde),
           ),
           const SizedBox(width: 14),
           Expanded(
@@ -266,7 +266,7 @@ class _Ocupado extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             spacing: 14,
             children: [
-              const SizedBox.square(
+              SizedBox.square(
                 dimension: 24,
                 child: CircularProgressIndicator(strokeWidth: 3, color: AppColors.primario),
               ),
@@ -299,7 +299,7 @@ class _Opcion extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // La opción destacada va rellena del acento, como la categoría activa de la referencia.
-    final fg = destacada ? Colors.white : AppColors.texto;
+    final fg = destacada ? AppColors.sobrePrimario : AppColors.texto;
     return TcTap(
       onTap: onTap,
       color: destacada ? AppColors.primario : AppColors.superficie,
@@ -312,11 +312,11 @@ class _Opcion extends StatelessWidget {
             width: 60,
             height: 60,
             decoration: BoxDecoration(
-              color: destacada ? Colors.white.withValues(alpha: 0.2) : AppColors.primarioSuave,
+              color: destacada ? AppColors.sobrePrimario.withValues(alpha: 0.2) : AppColors.primarioSuave,
               borderRadius: BorderRadius.circular(20),
             ),
             alignment: Alignment.center,
-            child: TcIcon(icono, size: 30, color: destacada ? Colors.white : AppColors.primario),
+            child: TcIcon(icono, size: 30, color: destacada ? AppColors.sobrePrimario : AppColors.primario),
           ),
           const SizedBox(width: 16),
           Expanded(
@@ -329,7 +329,9 @@ class _Opcion extends StatelessWidget {
                   texto,
                   style: AppText.body(
                     14,
-                    color: destacada ? Colors.white.withValues(alpha: 0.88) : AppColors.textoSecundario,
+                    color: destacada
+                        ? AppColors.sobrePrimario.withValues(alpha: 0.88)
+                        : AppColors.textoSecundario,
                     height: 1.4,
                   ),
                 ),
@@ -341,7 +343,7 @@ class _Opcion extends StatelessWidget {
             AppIcons.siguiente,
             size: 22,
             strokeWidth: 2.2,
-            color: destacada ? Colors.white : AppColors.textoSecundario,
+            color: destacada ? AppColors.sobrePrimario : AppColors.textoSecundario,
           ),
         ],
       ),

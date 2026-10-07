@@ -146,9 +146,9 @@ class BotonNuevoPerfil extends StatelessWidget {
               Container(
                 width: 52,
                 height: 52,
-                decoration: const BoxDecoration(color: AppColors.primarioSuave, shape: BoxShape.circle),
+                decoration: BoxDecoration(color: AppColors.primarioSuave, shape: BoxShape.circle),
                 alignment: Alignment.center,
-                child: const TcIcon(AppIcons.mas, size: 24, color: AppColors.primario, strokeWidth: 2.2),
+                child: TcIcon(AppIcons.mas, size: 24, color: AppColors.primario, strokeWidth: 2.2),
               ),
               const SizedBox(height: 12),
               Text('Nuevo', maxLines: 1, style: AppText.bold(15, color: AppColors.primario)),

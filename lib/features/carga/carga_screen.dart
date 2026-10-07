@@ -127,12 +127,7 @@ class _CargaScreenState extends State<CargaScreen> {
                           children: [
                             Row(
                               children: [
-                                const TcIcon(
-                                  AppIcons.cajon,
-                                  size: 22,
-                                  color: AppColors.primario,
-                                  strokeWidth: 2,
-                                ),
+                                TcIcon(AppIcons.cajon, size: 22, color: AppColors.primario, strokeWidth: 2),
                                 const SizedBox(width: 8),
                                 Text('Tu Cajón', style: AppText.display(18)),
                               ],
@@ -219,7 +214,7 @@ class _Ilustracion extends StatelessWidget {
             child: Container(
               width: 120,
               height: 120,
-              decoration: const BoxDecoration(color: AppColors.primarioSuave, shape: BoxShape.circle),
+              decoration: BoxDecoration(color: AppColors.primarioSuave, shape: BoxShape.circle),
             ),
           ),
           const CajonAnimado(width: 250),

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Fondo de la ventana mientras abre la app, con el celular en modo oscuro
+         (el mismo de la app de noche). -->
+    <color name="fondo_app">#0F1220</color>
+</resources>

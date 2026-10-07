@@ -336,7 +336,7 @@ class _PaginasScreenState extends State<PaginasScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               spacing: 8,
               children: [
-                const TcIcon(AppIcons.subirArchivo, size: 18, color: AppColors.ambar),
+                TcIcon(AppIcons.subirArchivo, size: 18, color: AppColors.ambar),
                 Expanded(
                   child: Text(
                     'Era un PDF: si guardas cambios, sus páginas quedan como imágenes (se ven igual).',
@@ -384,7 +384,7 @@ class _PaginasScreenState extends State<PaginasScreen> {
                       mainAxisAlignment: MainAxisAlignment.center,
                       spacing: 10,
                       children: [
-                        const SizedBox.square(
+                        SizedBox.square(
                           dimension: 18,
                           child: CircularProgressIndicator(strokeWidth: 2.5, color: AppColors.primario),
                         ),
@@ -540,7 +540,7 @@ class _FilaPagina extends StatelessWidget {
           ),
           ReorderableDragStartListener(
             index: indice,
-            child: const Padding(
+            child: Padding(
               padding: EdgeInsets.all(10),
               child: TcIcon(AppIcons.arrastrar, size: 22, color: AppColors.textoSecundario),
             ),

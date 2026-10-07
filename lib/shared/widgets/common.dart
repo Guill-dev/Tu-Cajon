@@ -9,21 +9,18 @@ import 'tc_icon.dart';
 
 /// Línea pequeña con candado: "Guardado solo en tu celular", etc.
 class PrivacyNote extends StatelessWidget {
-  const PrivacyNote(
-    this.text, {
-    super.key,
-    this.center = true,
-    this.size = 14,
-    this.color = AppColors.textoSecundario,
-  });
+  const PrivacyNote(this.text, {super.key, this.center = true, this.size = 14, this.color});
 
   final String text;
   final bool center;
   final double size;
-  final Color color;
+
+  /// Sin él, el gris de los textos secundarios.
+  final Color? color;
 
   @override
   Widget build(BuildContext context) {
+    final color = this.color ?? AppColors.textoSecundario;
     final label = Text(
       text,
       style: AppText.body(size, color: color, height: 1.4),

@@ -160,9 +160,9 @@ class _SelloHuella extends StatelessWidget {
       child: Stack(
         children: [
           Container(
-            decoration: const BoxDecoration(color: AppColors.primarioSuave, shape: BoxShape.circle),
+            decoration: BoxDecoration(color: AppColors.primarioSuave, shape: BoxShape.circle),
             alignment: Alignment.center,
-            child: const TcIcon(AppIcons.huella, size: 88, strokeWidth: 1.3, color: AppColors.primario),
+            child: TcIcon(AppIcons.huella, size: 88, strokeWidth: 1.3, color: AppColors.primario),
           ),
           Positioned(
             right: 6,
@@ -176,7 +176,7 @@ class _SelloHuella extends StatelessWidget {
                 border: Border.all(color: AppColors.fondo, width: 4),
               ),
               alignment: Alignment.center,
-              child: const TcIcon(AppIcons.candado, size: 22, color: Colors.white),
+              child: TcIcon(AppIcons.candado, size: 22, color: AppColors.sobrePrimario),
             ),
           ),
         ],
@@ -201,7 +201,7 @@ class _ListaGarantias extends StatelessWidget {
         children: [
           for (var i = 0; i < items.length; i++) ...[
             if (i > 0)
-              const Padding(
+              Padding(
                 padding: EdgeInsets.symmetric(horizontal: 16),
                 child: Divider(height: 1, thickness: 1, color: AppColors.divisor),
               ),
@@ -258,7 +258,7 @@ class _HojaEscaneando extends StatelessWidget {
           child: Stack(
             alignment: Alignment.center,
             children: [
-              const PulseRing(
+              PulseRing(
                 size: 104,
                 color: AppColors.pulso,
                 period: Duration(milliseconds: 1500),
@@ -268,9 +268,9 @@ class _HojaEscaneando extends StatelessWidget {
               Container(
                 width: 104,
                 height: 104,
-                decoration: const BoxDecoration(color: AppColors.primarioSuave, shape: BoxShape.circle),
+                decoration: BoxDecoration(color: AppColors.primarioSuave, shape: BoxShape.circle),
                 alignment: Alignment.center,
-                child: const TcIcon(AppIcons.huella, size: 60, strokeWidth: 1.3, color: AppColors.primario),
+                child: TcIcon(AppIcons.huella, size: 60, strokeWidth: 1.3, color: AppColors.primario),
               ),
             ],
           ),
@@ -312,9 +312,9 @@ class _HojaListo extends StatelessWidget {
             child: Container(
               width: 104,
               height: 104,
-              decoration: const BoxDecoration(color: AppColors.verdeSuave, shape: BoxShape.circle),
+              decoration: BoxDecoration(color: AppColors.verdeSuave, shape: BoxShape.circle),
               alignment: Alignment.center,
-              child: const TcIcon(AppIcons.check, size: 52, color: AppColors.verde),
+              child: TcIcon(AppIcons.check, size: 52, color: AppColors.verde),
             ),
           ),
         ),

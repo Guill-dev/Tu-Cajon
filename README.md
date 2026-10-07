@@ -35,10 +35,12 @@ lib/
 │
 ├── core/                      Lo que usa toda la app. No depende de ninguna pantalla.
 │   ├── theme/
-│   │   ├── app_colors.dart    Todos los colores del diseño, con nombre (fondo, primario, ámbar…).
+│   │   ├── app_colors.dart    Todos los colores del diseño, con nombre (fondo, primario, ámbar…),
+│   │   │                      en dos paletas: de día y de noche.
 │   │   ├── app_text.dart      Tipografía: Plus Jakarta Sans (títulos gruesos y texto).
 │   │   ├── app_decor.dart     Tarjetas: radio, sombras suaves y sombras de color.
-│   │   └── app_theme.dart     ThemeData de Material.
+│   │   ├── app_theme.dart     ThemeData de Material (de día y de noche).
+│   │   └── tema_del_celular.dart  Sigue el modo del celular y cambia la app cuando cambia.
 │   ├── icons/app_icons.dart   Los íconos del diseño como trazos SVG (idénticos al prototipo).
 │   ├── router/app_routes.dart Nombres de las rutas y qué pantalla abre cada una.
 │   ├── seguridad/             Llave del celular (huella/PIN) y cerrojo al salir de la app.
@@ -98,8 +100,9 @@ test/lectura_test.dart         Leer documentos: entender cédula, pasaporte, lic
                                certificados y recibos; PDF; leer los guardados; Guardar lo llena.
 test/base_datos_test.dart      Base SQLite real (en memoria): búsqueda, guardar, renombrar,
                                eliminar, perfiles, vencimientos, sugerencias y la IA local.
-test/pantallas_test.dart       Abre las 12 pantallas en tamaño celular (390×844) y prueba
-                               el flujo: nombre → llave → Mi cajón → buscar → Avisos, etc.
+test/pantallas_test.dart       Abre las 12 pantallas en tamaño celular (390×844), de día y de
+                               noche, y prueba el flujo: nombre → llave → Mi cajón → buscar →
+                               Avisos, etc. También que cambia sola cuando el celular cambia.
 ```
 
 ### El estilo visual (v3)
@@ -120,6 +123,27 @@ Todo sale de tres archivos. Si cambias algo ahí, cambia en toda la app:
 
 Piezas del estilo: `TwoToneTitle` y `BackHeader` en `shared/widgets/common.dart`, y
 `SquircleButton`, `ArrowButton` y `PillChip` en `shared/widgets/buttons.dart`.
+
+### Modo oscuro
+
+La app se ve **igual que el celular**: si está en modo oscuro, de noche; si no, de día. Y cambia
+en el momento en que el celular cambia (a mano o solo, a la hora programada), sin cerrar ni
+reiniciar la pantalla en que estás.
+
+- **Dos paletas** (`Paleta.dia` y `Paleta.noche` en `app_colors.dart`). La de noche usa el azul
+  marino de la cámara de fondo, tarjetas un poco más claras y el acento azul-violeta aclarado
+  para que se lea; encima del acento el texto va oscuro (`sobrePrimario`), como pide Material
+  para el modo oscuro. Los textos cumplen contraste AA en las dos.
+- **`AppColors`** entrega los colores de la paleta en uso, así que las pantallas no cambian:
+  siguen usando `AppColors.primario`, `AppColors.fondo`… Lo que es igual siempre (la cámara, la
+  cédula dibujada, el color de las notificaciones) sigue fijo.
+- **`TemaDelCelular`** (`core/theme/tema_del_celular.dart`) escucha al celular; al cambiar de
+  modo cambia la paleta y vuelve a construir y a pintar toda la app (también los dibujos y las
+  pantallas que están debajo de la actual).
+- **Las carpetas** (Identidad, Salud…) tienen su color de noche, más claro, y su ficha es un
+  tinte de ese color.
+- **Al abrir**, Android pinta la ventana con el fondo de la app según el modo
+  (`values-night/colors.xml`), así no hay un destello blanco antes de la primera pantalla.
 
 ### La regla de las capas
 

@@ -34,9 +34,9 @@ class ErrorAperturaApp extends StatelessWidget {
                   child: Container(
                     width: 88,
                     height: 88,
-                    decoration: const BoxDecoration(color: AppColors.primarioSuave, shape: BoxShape.circle),
+                    decoration: BoxDecoration(color: AppColors.primarioSuave, shape: BoxShape.circle),
                     alignment: Alignment.center,
-                    child: const TcIcon(AppIcons.candado, size: 40, color: AppColors.primario),
+                    child: TcIcon(AppIcons.candado, size: 40, color: AppColors.primario),
                   ),
                 ),
                 const SizedBox(height: 24),

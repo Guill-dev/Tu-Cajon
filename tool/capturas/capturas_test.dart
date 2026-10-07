@@ -36,8 +36,13 @@ Future<void> _cargarLetras() async {
 }
 
 /// Abre [ruta] en un celular de 390×844 con barra de estado (40) y barra de
-/// gestos (20), como se ve en un teléfono real.
-Future<void> _abrir(WidgetTester tester, String ruta, {Object? args}) async {
+/// gestos (20), como se ve en un teléfono real. Con [noche], el celular está
+/// en modo oscuro.
+Future<void> _abrir(WidgetTester tester, String ruta, {Object? args, bool noche = false}) async {
+  if (noche) {
+    tester.platformDispatcher.platformBrightnessTestValue = Brightness.dark;
+    addTearDown(tester.platformDispatcher.clearPlatformBrightnessTestValue);
+  }
   tester.view.physicalSize = const Size(1170, 2532);
   tester.view.devicePixelRatio = 3;
   tester.view.padding = const FakeViewPadding(top: 120, bottom: 60);
@@ -100,30 +105,36 @@ void main() {
     'ajustes': (AppRoutes.ajustes, null, Duration.zero),
   };
 
-  for (final MapEntry(key: nombre, value: (ruta, args, espera)) in pantallas.entries) {
-    testWidgets('Captura: $nombre', (tester) async {
-      await _abrir(tester, ruta, args: args);
-      await tester.pump(espera);
-      await _capturar(tester, nombre);
+  for (final noche in [false, true]) {
+    for (final MapEntry(key: nombre, value: (ruta, args, espera)) in pantallas.entries) {
+      testWidgets('Captura: $nombre${noche ? ' (de noche)' : ''}', (tester) async {
+        await _abrir(tester, ruta, args: args, noche: noche);
+        await tester.pump(espera);
+        await _capturar(tester, noche ? '${nombre}_noche' : nombre);
+        await tester.pump(const Duration(seconds: 5));
+      });
+    }
+  }
+
+  for (final noche in [false, true]) {
+    testWidgets('Captura: avisos con las notificaciones ya activadas${noche ? ' (de noche)' : ''}', (
+      tester,
+    ) async {
+      // permission_handler: 1 = permitido.
+      final mensajero = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      const permisos = MethodChannel('flutter.baseflow.com/permissions/methods');
+      mensajero.setMockMethodCallHandler(permisos, (llamada) async {
+        if (llamada.method == 'checkPermissionStatus') return 1;
+        throw MissingPluginException();
+      });
+      addTearDown(
+        () => mensajero.setMockMethodCallHandler(permisos, (_) async => throw MissingPluginException()),
+      );
+      await _abrir(tester, AppRoutes.cajon, args: CajonTab.avisos, noche: noche);
+      await _capturar(tester, noche ? 'avisos_noche' : 'avisos');
       await tester.pump(const Duration(seconds: 5));
     });
   }
-
-  testWidgets('Captura: avisos (con las notificaciones ya activadas)', (tester) async {
-    // permission_handler: 1 = permitido.
-    final mensajero = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
-    const permisos = MethodChannel('flutter.baseflow.com/permissions/methods');
-    mensajero.setMockMethodCallHandler(permisos, (llamada) async {
-      if (llamada.method == 'checkPermissionStatus') return 1;
-      throw MissingPluginException();
-    });
-    addTearDown(
-      () => mensajero.setMockMethodCallHandler(permisos, (_) async => throw MissingPluginException()),
-    );
-    await _abrir(tester, AppRoutes.cajon, args: CajonTab.avisos);
-    await _capturar(tester, 'avisos');
-    await tester.pump(const Duration(seconds: 5));
-  });
 
   testWidgets('Captura: escanear (con el frente ya tomado)', (tester) async {
     await _abrir(tester, AppRoutes.escanear);

@@ -298,12 +298,12 @@ class _BotonHuella extends StatelessWidget {
                   ),
                   child: abierto
                       ? const TcIcon(AppIcons.check, key: ValueKey('check'), size: 68, color: Colors.white)
-                      : const TcIcon(
+                      : TcIcon(
                           AppIcons.huella,
                           key: ValueKey('huella'),
                           size: 72,
                           strokeWidth: 1.3,
-                          color: Colors.white,
+                          color: AppColors.sobrePrimario,
                         ),
                 ),
               ),
@@ -339,7 +339,7 @@ class _Destello extends StatelessWidget {
               child: Container(
                 width: tam,
                 height: tam,
-                decoration: const BoxDecoration(color: AppColors.verdeSuave, shape: BoxShape.circle),
+                decoration: BoxDecoration(color: AppColors.verdeSuave, shape: BoxShape.circle),
               ),
             ),
           ),

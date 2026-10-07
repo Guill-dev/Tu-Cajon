@@ -12,6 +12,7 @@ import 'core/router/app_routes.dart';
 import 'core/seguridad/cerrojo.dart';
 import 'core/seguridad/llave_celular.dart';
 import 'core/theme/app_theme.dart';
+import 'core/theme/tema_del_celular.dart';
 import 'data/copia/copia_de_seguridad.dart';
 import 'data/copia/programador_de_copias.dart';
 import 'data/lectura/lector_del_cajon.dart';
@@ -146,23 +147,27 @@ class _TuCajonAppState extends State<TuCajonApp> {
                     copia: widget.copia,
                     child: LecturaScope(
                       lectura: _lectura,
-                      child: AnnotatedRegion<SystemUiOverlayStyle>(
-                        value: SystemUiOverlayStyle.dark.copyWith(statusBarColor: Colors.transparent),
-                        child: MaterialApp(
-                          navigatorKey: _navegador,
-                          navigatorObservers: [_recepcion.rutas],
-                          title: 'Tu Cajón',
-                          debugShowCheckedModeBanner: false,
-                          theme: AppTheme.light,
-                          locale: const Locale('es', 'CO'),
-                          supportedLocales: const [Locale('es', 'CO'), Locale('es')],
-                          localizationsDelegates: GlobalMaterialLocalizations.delegates,
-                          onGenerateInitialRoutes: (_) => [
-                            AppRoutes.onGenerateRoute(
-                              RouteSettings(name: widget.rutaInicial, arguments: widget.argumentos),
-                            ),
-                          ],
-                          onGenerateRoute: AppRoutes.onGenerateRoute,
+                      // De día o de noche, igual que el celular (y cambia con él).
+                      child: TemaDelCelular(
+                        builder: (context, paleta) => AnnotatedRegion<SystemUiOverlayStyle>(
+                          value: (paleta.deNoche ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark)
+                              .copyWith(statusBarColor: Colors.transparent),
+                          child: MaterialApp(
+                            navigatorKey: _navegador,
+                            navigatorObservers: [_recepcion.rutas],
+                            title: 'Tu Cajón',
+                            debugShowCheckedModeBanner: false,
+                            theme: AppTheme.de(paleta),
+                            locale: const Locale('es', 'CO'),
+                            supportedLocales: const [Locale('es', 'CO'), Locale('es')],
+                            localizationsDelegates: GlobalMaterialLocalizations.delegates,
+                            onGenerateInitialRoutes: (_) => [
+                              AppRoutes.onGenerateRoute(
+                                RouteSettings(name: widget.rutaInicial, arguments: widget.argumentos),
+                              ),
+                            ],
+                            onGenerateRoute: AppRoutes.onGenerateRoute,
+                          ),
                         ),
                       ),
                     ),

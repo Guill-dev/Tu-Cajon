@@ -150,7 +150,7 @@ class _AvisosScreenState extends State<AvisosScreen> with ToastMixin {
                         ],
                         const _EstadoNotificaciones(),
                         const SizedBox(height: 24),
-                        const Row(
+                        Row(
                           children: [
                             Expanded(child: _Titulo('Sugerencias para ti')),
                             TcBadge(
@@ -185,7 +185,7 @@ class _AvisosScreenState extends State<AvisosScreen> with ToastMixin {
                                     ),
                                     child: Row(
                                       children: [
-                                        const TcIcon(AppIcons.check, size: 26, color: AppColors.verdeOscuro),
+                                        TcIcon(AppIcons.check, size: 26, color: AppColors.verdeOscuro),
                                         const SizedBox(width: 12),
                                         Expanded(
                                           child: Text(
@@ -325,7 +325,7 @@ class _EstadoNotificacionesState extends State<_EstadoNotificaciones> {
     if (permiso == PermisoAvisos.permitido) {
       return Row(
         children: [
-          const TcIcon(AppIcons.reloj, size: 16, color: AppColors.textoSecundario),
+          TcIcon(AppIcons.reloj, size: 16, color: AppColors.textoSecundario),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
@@ -350,7 +350,7 @@ class _EstadoNotificacionesState extends State<_EstadoNotificaciones> {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const TcIcon(AppIcons.campana, size: 24, color: AppColors.ambar),
+              TcIcon(AppIcons.campana, size: 24, color: AppColors.ambar),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -397,7 +397,7 @@ class _FechaVence extends StatelessWidget {
       Color etiquetaFondo,
       Color etiquetaColor,
     ) = switch (dias) {
-      < 0 => ('Vencido', const Color(0xFFFDE8E6), AppColors.rojo, const Color(0xFFFDE8E6), AppColors.rojo),
+      < 0 => ('Vencido', AppColors.rojoSuave, AppColors.rojo, AppColors.rojoSuave, AppColors.rojo),
       <= 30 => ('Pronto', AppColors.ambarSuave, AppColors.ambar, AppColors.ambarSuave, AppColors.ambar),
       _ => (
         'A tiempo',

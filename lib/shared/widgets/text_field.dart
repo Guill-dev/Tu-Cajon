@@ -69,7 +69,7 @@ class TcTextField extends StatelessWidget {
               enabledBorder: OutlineInputBorder(borderRadius: br, borderSide: BorderSide.none),
               focusedBorder: OutlineInputBorder(
                 borderRadius: br,
-                borderSide: const BorderSide(color: AppColors.primario, width: 2),
+                borderSide: BorderSide(color: AppColors.primario, width: 2),
               ),
             ),
           ),

@@ -44,7 +44,13 @@ class BarraInferior extends StatelessWidget {
           decoration: BoxDecoration(
             color: AppColors.superficie,
             borderRadius: BorderRadius.circular(alto / 2),
-            boxShadow: const [BoxShadow(color: Color(0x262B3A8C), blurRadius: 30, offset: Offset(0, 12))],
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.deNoche ? const Color(0x80000000) : const Color(0x262B3A8C),
+                blurRadius: 30,
+                offset: const Offset(0, 12),
+              ),
+            ],
           ),
           child: Row(
             children: [
@@ -150,7 +156,7 @@ class _ItemTab extends StatelessWidget {
                           border: Border.all(color: AppColors.superficie, width: 2),
                         ),
                         alignment: Alignment.center,
-                        child: Text('$contador', style: AppText.bold(10, color: Colors.white)),
+                        child: Text('$contador', style: AppText.bold(10, color: AppColors.sobreRojo)),
                       ),
                     ),
                 ],
@@ -189,7 +195,7 @@ class _BotonAgregar extends StatelessWidget {
       height: 52,
       shadow: AppDecor.sombraColor(AppColors.primario),
       semanticLabel: 'Agregar documento',
-      child: const Center(child: TcIcon(AppIcons.mas, size: 26, color: Colors.white, strokeWidth: 2.4)),
+      child: Center(child: TcIcon(AppIcons.mas, size: 26, color: AppColors.sobrePrimario, strokeWidth: 2.4)),
     );
   }
 }

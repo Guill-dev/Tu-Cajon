@@ -2,4 +2,7 @@
 <resources>
     <!-- Fondo del ícono (el mismo del diseño; ver tool/generar_iconos.dart). -->
     <color name="ic_launcher_background">#F3F6FA</color>
+    <!-- Fondo de la ventana mientras abre la app (el mismo de la app de día).
+         De noche: values-night/colors.xml. -->
+    <color name="fondo_app">#EEF2FB</color>
 </resources>

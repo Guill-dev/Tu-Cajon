@@ -131,7 +131,7 @@ class _AgregarPerfilScreenState extends State<AgregarPerfilScreen> {
                                   boxShadow: color == _color
                                       ? [
                                           BoxShadow(color: color, spreadRadius: 5),
-                                          const BoxShadow(color: AppColors.fondo, spreadRadius: 3),
+                                          BoxShadow(color: AppColors.fondo, spreadRadius: 3),
                                         ]
                                       : const [],
                                 ),
@@ -150,7 +150,7 @@ class _AgregarPerfilScreenState extends State<AgregarPerfilScreen> {
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Padding(
+                          Padding(
                             padding: EdgeInsets.only(top: 1),
                             child: TcIcon(AppIcons.candado, size: 22, color: AppColors.primario),
                           ),
@@ -195,7 +195,7 @@ class _BotonTipo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final fg = activo ? Colors.white : AppColors.texto;
+    final fg = activo ? AppColors.sobrePrimario : AppColors.texto;
     return TcTap(
       onTap: onTap,
       selected: activo,

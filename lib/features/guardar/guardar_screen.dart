@@ -423,7 +423,7 @@ class _GuardarScreenState extends State<GuardarScreen> {
       final avance = _avance;
       return _Recuadro(
         key: const ValueKey('leyendo'),
-        icono: const SizedBox.square(
+        icono: SizedBox.square(
           dimension: 22,
           child: CircularProgressIndicator(strokeWidth: 2.5, color: AppColors.primario),
         ),
@@ -658,9 +658,9 @@ class _Recuadro extends StatelessWidget {
                           borderRadius: BorderRadius.circular(11),
                         ),
                         alignment: Alignment.center,
-                        child: const TcIcon(AppIcons.destelloSolo, size: 19, color: AppColors.ambar),
+                        child: TcIcon(AppIcons.destelloSolo, size: 19, color: AppColors.ambar),
                       )
-                    : const TcIcon(AppIcons.lapiz, size: 22, color: AppColors.primario)),
+                    : TcIcon(AppIcons.lapiz, size: 22, color: AppColors.primario)),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -713,7 +713,7 @@ class _MarcaLeido extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         spacing: 4,
         children: [
-          const TcIcon(AppIcons.destelloSolo, size: 14, color: AppColors.ambar),
+          TcIcon(AppIcons.destelloSolo, size: 14, color: AppColors.ambar),
           Text('Lo leyó la IA', style: AppText.bold(12, color: AppColors.ambar)),
         ],
       ),
@@ -784,7 +784,7 @@ class _Paginas extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.center,
                   spacing: 6,
                   children: [
-                    const TcIcon(AppIcons.mas, size: 24, color: AppColors.textoSecundario),
+                    TcIcon(AppIcons.mas, size: 24, color: AppColors.textoSecundario),
                     Text('Otra página', style: AppText.bold(13, color: AppColors.textoSecundario)),
                   ],
                 ),
@@ -884,7 +884,7 @@ class _Vencimiento extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Row(
                 children: [
-                  const TcIcon(AppIcons.calendario, size: 22, color: AppColors.primario),
+                  TcIcon(AppIcons.calendario, size: 22, color: AppColors.primario),
                   const SizedBox(width: 10),
                   Expanded(child: Text('¿Este documento se vence?', style: AppText.bold(16))),
                   const SizedBox(width: 12),
@@ -900,7 +900,7 @@ class _Vencimiento extends StatelessWidget {
             child: activo
                 ? Container(
                     padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
-                    decoration: const BoxDecoration(
+                    decoration: BoxDecoration(
                       border: Border(top: BorderSide(color: AppColors.divisor)),
                     ),
                     child: Column(
@@ -923,7 +923,7 @@ class _Vencimiento extends StatelessWidget {
                           child: Row(
                             children: [
                               Expanded(child: Text(fecha, style: AppText.body(17))),
-                              const TcIcon(AppIcons.calendario, size: 20, color: AppColors.textoSecundario),
+                              TcIcon(AppIcons.calendario, size: 20, color: AppColors.textoSecundario),
                             ],
                           ),
                         ),

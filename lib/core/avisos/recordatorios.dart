@@ -78,7 +78,8 @@ class RecordatoriosDelSistema implements Recordatorios {
       'Vencimientos',
       channelDescription: 'Te avisa antes de que venza un documento.',
       icon: 'ic_notificacion',
-      color: AppColors.primario,
+      // El acento de día: el ícono de la notificación se ve igual en cualquier modo.
+      color: AppColors.camaraPrimario,
       category: AndroidNotificationCategory.reminder,
       // En la pantalla bloqueada, si el celular oculta el contenido
       // sensible, no se ve el nombre del documento.

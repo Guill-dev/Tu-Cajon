@@ -85,7 +85,7 @@ class _PreguntarScreenState extends State<PreguntarScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const BackHeader(
+            BackHeader(
               title: 'Pregúntale a tu cajón',
               titleSize: 21,
               backLabel: 'Volver a mi cajón',
@@ -168,7 +168,7 @@ class _PreguntarScreenState extends State<PreguntarScreen> {
                     width: 52,
                     height: 52,
                     semanticLabel: 'Enviar pregunta',
-                    child: const Center(child: TcIcon(AppIcons.enviar, size: 22, color: Colors.white)),
+                    child: Center(child: TcIcon(AppIcons.enviar, size: 22, color: AppColors.sobrePrimario)),
                   ),
                 ],
               ),
@@ -225,7 +225,7 @@ class _Burbuja extends StatelessWidget {
           children: [
             Text(
               mensaje.texto,
-              style: AppText.body(16, color: ia ? AppColors.texto : Colors.white, height: 1.4),
+              style: AppText.body(16, color: ia ? AppColors.texto : AppColors.sobrePrimario, height: 1.4),
             ),
             if (ia && mensaje.cta != null && onCta != null)
               Padding(
@@ -239,7 +239,7 @@ class _Burbuja extends StatelessWidget {
                       spacing: 4,
                       children: [
                         Text(mensaje.cta!.etiqueta, style: AppText.bold(15, color: AppColors.primario)),
-                        const TcIcon(AppIcons.siguiente, size: 16, color: AppColors.primario),
+                        TcIcon(AppIcons.siguiente, size: 16, color: AppColors.primario),
                       ],
                     ),
                   ),
@@ -258,9 +258,9 @@ class _Burbuja extends StatelessWidget {
           Container(
             width: 36,
             height: 36,
-            decoration: const BoxDecoration(color: AppColors.primario, shape: BoxShape.circle),
+            decoration: BoxDecoration(color: AppColors.primario, shape: BoxShape.circle),
             alignment: Alignment.center,
-            child: const TcIcon(AppIcons.destelloSolo, size: 18, color: Colors.white),
+            child: TcIcon(AppIcons.destelloSolo, size: 18, color: AppColors.sobrePrimario),
           ),
           const SizedBox(width: 10),
         ],

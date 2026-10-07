@@ -150,7 +150,7 @@ class _RecibirScreenState extends State<RecibirScreen> {
               ),
               const SizedBox(height: 32),
               if (problema == null)
-                const Center(
+                Center(
                   child: SizedBox.square(
                     dimension: 32,
                     child: CircularProgressIndicator(strokeWidth: 3, color: AppColors.primario),

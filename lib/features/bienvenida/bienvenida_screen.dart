@@ -61,7 +61,7 @@ class _BienvenidaScreenState extends State<BienvenidaScreen> {
                 height: 44,
                 child: Row(
                   children: [
-                    const TcIcon(AppIcons.cajon, size: 22, color: AppColors.titulo),
+                    TcIcon(AppIcons.cajon, size: 22, color: AppColors.titulo),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(

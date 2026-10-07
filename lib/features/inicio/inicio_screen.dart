@@ -157,7 +157,7 @@ class _InicioScreenState extends State<InicioScreen> with ToastMixin {
               stream: _descartadas,
               builder: (context, descartadas) {
                 if (!perfiles.hasData || !todos.hasData) {
-                  return const ColoredBox(color: AppColors.fondo);
+                  return ColoredBox(color: AppColors.fondo);
                 }
                 return _contenido(
                   nombre: nombre.data ?? '',
@@ -449,7 +449,7 @@ class _Buscador extends StatelessWidget {
       decoration: AppDecor.tarjeta(radius: 20),
       child: Row(
         children: [
-          const TcIcon(AppIcons.buscar, size: 22, color: AppColors.textoSecundario, strokeWidth: 2),
+          TcIcon(AppIcons.buscar, size: 22, color: AppColors.textoSecundario, strokeWidth: 2),
           const SizedBox(width: 12),
           Expanded(
             child: TextField(
@@ -473,7 +473,7 @@ class _Buscador extends StatelessWidget {
               width: 40,
               height: 40,
               semanticLabel: 'Borrar búsqueda',
-              child: const Center(child: TcIcon(AppIcons.cerrar, size: 18, color: AppColors.textoSecundario)),
+              child: Center(child: TcIcon(AppIcons.cerrar, size: 18, color: AppColors.textoSecundario)),
             ),
         ],
       ),
@@ -526,7 +526,7 @@ class _TarjetaSugerencia extends StatelessWidget {
               height: 48,
               decoration: BoxDecoration(color: AppColors.amarillo, borderRadius: BorderRadius.circular(16)),
               alignment: Alignment.center,
-              child: const TcIcon(AppIcons.destello, size: 24, color: AppColors.ambar),
+              child: TcIcon(AppIcons.destello, size: 24, color: AppColors.ambar),
             ),
             const SizedBox(width: 14),
             Expanded(
@@ -543,7 +543,7 @@ class _TarjetaSugerencia extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 10),
-            const TcIcon(AppIcons.siguiente, size: 20, color: AppColors.ambar, strokeWidth: 2.2),
+            TcIcon(AppIcons.siguiente, size: 20, color: AppColors.ambar, strokeWidth: 2.2),
           ],
         ),
       ),
