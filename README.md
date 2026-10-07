@@ -46,6 +46,7 @@ lib/
 │                              y si hay Wi-Fi.
 │   ├── avisos/                Notificaciones: avisos de vencimiento y recordatorios.
 │   ├── compartir/             Arma el PDF y lo entrega a WhatsApp o al menú de compartir.
+│   ├── lectura/               Lee el texto de una foto con ML Kit, en el celular (LectorDeTexto.kt).
 │   ├── archivos/              Abre la galería y el explorador de archivos del sistema, y
 │                              recibe lo que llega por "Compartir → Tu Cajón" (buzón).
 │   ├── pdf/                   Lee los PDF subidos con el lector nativo (sin dejar copias).
@@ -57,6 +58,8 @@ lib/
 │   ├── db/                    Base de datos: tablas, índice de búsqueda y apertura cifrada.
 │   ├── repositorio/           CajonRepositorio: lo único que usan las pantallas.
 │   ├── copia/                 Copia de seguridad: cifrado, índice, nube y programador.
+│   ├── lectura/               Leer documentos: todas sus páginas, entender qué son (intérprete)
+│   │                          y leer en segundo plano los que aún no tienen su texto.
 │   └── datos_ejemplo.dart     Marta y Mamá (solo en desarrollo y en la vista web).
 │
 ├── shared/                    Piezas reutilizables entre pantallas.
@@ -76,10 +79,11 @@ lib/
     ├── detalle/               6 · Documento: editar, reemplazar, eliminar y enviar por WhatsApp
     ├── avisos/                7 · Avisos y sugerencias con IA
     ├── agregar/               8 · Agregar documento
-    ├── escanear/              9 · Escanear con la cámara (formatos, recorte, filtros, revisar foto)
+    ├── escanear/              9 · Escanear con la cámara (formatos, bordes automáticos, filtros, revisar foto)
     ├── paginas/               Tus páginas: fotos de la galería antes de guardarlas
     ├── recibir/               Lo que llega desde WhatsApp, Gmail, Drive o la galería
-    ├── guardar/               10 · Guardar (la IA llena los datos)
+    ├── guardar/               10 · Guardar (la lectura llena nombre, tipo y vencimiento)
+    ├── texto/                 Lo que dice el documento: todo el texto leído, para copiarlo
     ├── preguntar/             11 · Pregúntale a tu cajón (chat IA)
     ├── ajustes/               Ajustes: la copia de seguridad en Google Drive
     ├── recuperar/             Recuperar mi cajón (al estrenar celular)
@@ -88,6 +92,10 @@ lib/
 
 test/copia_test.dart           Copia de seguridad: cifrado, solo sube lo nuevo, recuperar con
                                la llave o con el código de emergencia, Wi-Fi y errores.
+test/bordes_test.dart          Bordes del papel: hoja torcida, cédula, mesa de madera, un dedo encima,
+                               casos sin papel claro, y enderezar con perspectiva.
+test/lectura_test.dart         Leer documentos: entender cédula, pasaporte, licencia, SOAT, RUT,
+                               certificados y recibos; PDF; leer los guardados; Guardar lo llena.
 test/base_datos_test.dart      Base SQLite real (en memoria): búsqueda, guardar, renombrar,
                                eliminar, perfiles, vencimientos, sugerencias y la IA local.
 test/pantallas_test.dart       Abre las 12 pantallas en tamaño celular (390×844) y prueba
@@ -247,35 +255,100 @@ Ajustes / Recuperar ──context.copia──▶ CopiaDeSeguridad (data/copia/)
 
 | Hoy | Después |
 |---|---|
-| La IA de "Guardar" siempre propone "Cédula de ciudadanía" | Reconocimiento de texto en el celular (OCR) que llene `textoExtraido` |
-| El chat usa búsqueda + reglas (`preguntar/respuestas_demo.dart`) | Modelo de IA local sobre tus documentos |
+| El chat usa búsqueda + reglas (`preguntar/respuestas_demo.dart`) sobre el texto leído | Modelo de IA local sobre tus documentos |
+| Leer documentos solo en Android | En iPhone, con el reconocimiento de texto del sistema (Vision) |
 | La copia de seguridad se guarda en una carpeta del mismo celular (modo de prueba) | Google Drive: carpeta oculta de la app, con un proyecto de Google Cloud |
 | "Compartir → Tu Cajón" solo en Android | En iPhone hace falta una extensión aparte (Share Extension) |
 
 Ya funcionan de verdad: la llave del cajón (huella, rostro, PIN o patrón del celular, con `local_auth`), que se vuelve a pedir cada vez que se sale de la app (`core/seguridad/cerrojo.dart`), los avisos de vencimiento (notificaciones del celular 30 días antes, 7 días antes y el mismo día a las 9 a. m., y "Recordarme el lunes"; se programan en el celular sin internet, sobreviven a un reinicio y al tocarlos abren el documento después de la llave: `core/avisos/` y `features/avisos/avisos_programados.dart`, con `flutter_local_notifications`), editar un documento guardado (sus datos en Guardar, o sus páginas con las herramientas de siempre en `features/paginas/`, guardando en el mismo lugar sin volver a preguntar), reemplazar las páginas de un documento, la cámara (con
-formatos de marco, páginas ilimitadas, revisar/recortar/eliminar cada foto y filtros de escáner, en
-`features/escanear/`), subir un PDF (se guarda tal cual, cifrado; sus páginas se dibujan con el lector nativo de Android sin dejar copias, `core/pdf/`) o fotos de la galería con las mismas herramientas de la cámara (`features/paginas/`), recibir un PDF o fotos desde otras apps con "Compartir → Tu Cajón" (`ArchivosRecibidos.kt` los lee directo a la memoria, sin copias; se ven solo después de la llave; `core/archivos/recepcion.dart` y `features/recibir/`), enviar por WhatsApp o compartir como PDF (`core/compartir/`, el PDF temporal se borra solo), guardar documentos, eliminar, crear perfiles, buscar,
+formatos de marco, páginas ilimitadas, bordes del papel automáticos (ver [Bordes automáticos](#bordes-automáticos)), revisar/recortar/eliminar cada foto y filtros de escáner, en
+`features/escanear/`), leer los documentos (ver [Leer documentos](#leer-documentos)), subir un PDF (se guarda tal cual, cifrado; sus páginas se dibujan con el lector nativo de Android sin dejar copias, `core/pdf/`) o fotos de la galería con las mismas herramientas de la cámara (`features/paginas/`), recibir un PDF o fotos desde otras apps con "Compartir → Tu Cajón" (`ArchivosRecibidos.kt` los lee directo a la memoria, sin copias; se ven solo después de la llave; `core/archivos/recepcion.dart` y `features/recibir/`), enviar por WhatsApp o compartir como PDF (`core/compartir/`, el PDF temporal se borra solo), guardar documentos, eliminar, crear perfiles, buscar,
 descartar sugerencias, y recordar el nombre y la llave entre sesiones.
+
+---
+
+## Bordes automáticos
+
+Como en los escáneres de celular: al tomar la foto, la app busca los bordes del papel, lo recorta
+y lo endereza (corrige la perspectiva), así queda como si se hubiera tomado de frente.
+
+- **Al tomar la foto** (`procesar_foto.dart`): se busca el papel en lo que hay dentro del marco y un
+  6 % más alrededor (por si el papel se salió un poco). Si lo encuentra, recorta y endereza; si no
+  (papel blanco sobre mesa blanca, o el papel se sale), queda lo que estaba dentro del marco. Las
+  fotos de la galería pasan por lo mismo. La primera vez se avisa con un mensaje.
+- **Cómo lo busca** (`bordes.dart`, en otro hilo, unos 0,3 s): achica la foto a 480 px, marca los
+  cambios fuertes de luz o de color (Sobel), encuentra las rectas largas con la transformada de
+  Hough y elige, entre esas rectas, el cuadrilátero grande, con ángulos de papel y con más borde a lo
+  largo de sus cuatro lados. Después afina cada lado con los puntos de borde cercanos (mínimos
+  cuadrados). Es visión por computador clásica: no usa un modelo de IA.
+- **Enderezar** (`enderezarPixeles`): homografía del cuadrilátero a un rectángulo, con
+  interpolación bilineal. Una cédula toma la proporción de una tarjeta (85,6 × 54 mm) y una hoja la
+  de carta, A4 u oficio si se parece.
+- **Revisar → Recortar** (`revisar_foto.dart`): se ve la foto original con los bordes encontrados.
+  Se arrastran las cuatro esquinas (una lupa muestra la esquina ampliada para dejarla justo) o un
+  lado entero desde su rayita. "Detectar" los busca otra vez y "Restablecer" vuelve a la foto
+  entera. Como se guarda la original (`PaginaEditable`), los bordes se pueden volver a abrir hacia
+  afuera sin perder nada.
+
+---
+
+## Leer documentos
+
+Al guardar un documento (cámara, galería, PDF o "Compartir"), la app lee **todo** su texto,
+página por página, mientras la persona revisa los datos. Con eso:
+
+- **Llena los datos:** el nombre ("Cédula de ciudadanía", "SOAT · ABC123"…), el tipo (la carpeta)
+  y la fecha de vencimiento. Solo llena lo que la persona no ha tocado, y lo marca con
+  "Lo leyó la IA". Al reemplazar páginas, solo actualiza la fecha.
+- **Guarda el texto** en `textoExtraido`, así el buscador y "Pregúntale a tu cajón" encuentran
+  el documento por lo que dice (un número, un nombre, una placa).
+- **Detalle:** la tarjeta "Lo que dice el documento" muestra el número principal para copiarlo y
+  "Ver todo el texto" (`features/texto/`), página por página, seleccionable.
+- **Lo ya guardado:** `LectorDelCajon` lee en segundo plano, uno por uno, los documentos que aún
+  no tienen texto (cada uno se intenta una vez, y otra si cambian sus páginas). En el detalle
+  también está "Leer ahora".
+
+```
+Fotos o PDF ──▶ LecturaDeDocumentos ──▶ LectorDeTexto (canal tu_cajon/leer → LectorDeTexto.kt, ML Kit)
+                 (data/lectura/)     └─▶ Interprete: tipo, carpeta, número y vencimiento
+```
+
+- **Leer** (`core/lectura/`, `LectorDeTexto.kt`): reconocimiento de texto de **ML Kit** de Google,
+  con el modelo **dentro de la app** (`com.google.mlkit:text-recognition`). Funciona sin internet y
+  la imagen se lee en memoria: no sale del celular. Un PDF se dibuja de a 4 páginas (hasta 40).
+  Si la foto casi no tiene letras, se prueba girada.
+- **Entender** (`data/lectura/interprete.dart`): reglas para los papeles de Colombia (cédula,
+  tarjeta de identidad, pasaporte, PPT, licencia, SOAT, técnico-mecánica, tarjeta de propiedad,
+  RUT, renta, EPS, vacunas, diplomas, Saber 11, pensión, recibos, arriendo, certificados…). Gana
+  el tipo que aparece primero (el título va arriba). La fecha de vencimiento es la que el texto
+  marca ("vence", "vigencia", "hasta", "expiry"); en pasaporte, licencia y SOAT, si no lo dice,
+  la más lejana que no sea de nacimiento o expedición. Si no reconoce el tipo, propone el título
+  (la letra más grande de arriba).
+- **Sin internet:** ML Kit trae el permiso de internet solo para mandarle a Google estadísticas de
+  uso. En `AndroidManifest.xml` se quitan el permiso y el destino de esas estadísticas. Cuando se
+  conecte Google Drive habrá que volver a permitir internet; las estadísticas siguen apagadas.
+- **Tamaño:** el modelo suma unos 11 MB por tipo de procesador. La APK de prueba trae los tres
+  (98 MB); desde la Play Store, cada celular descarga solo el suyo.
 
 ---
 
 ## La "IA" dentro de la app
 
-Hoy **Tu Cajón no usa ningún modelo de inteligencia artificial** y no envía datos a servicios de
-IA: todo funciona dentro del celular. Algunas partes llevan la etiqueta "IA" en la interfaz
-porque así quedaron en el diseño, pero por dentro son reglas o están simuladas:
+Tu Cajón usa **un modelo de inteligencia artificial, y solo en el celular**: el reconocimiento de
+texto de ML Kit, que lee los documentos. No se envía nada a servicios de IA. Otras partes llevan la
+etiqueta "IA" en la interfaz, pero por dentro son reglas:
 
 | En la app | Cómo funciona de verdad |
 |---|---|
+| "La IA leyó tu documento" al guardar | Lee el texto con ML Kit (modelo en el celular) y entiende el tipo, el número y la fecha con reglas (`data/lectura/`) |
 | "Sugerencia de la IA" (Mi cajón y Avisos) | Reglas fijas sobre fechas y tipos de documento (`features/avisos/sugerencias.dart`) |
-| "Pregúntale a tu cajón" | Búsqueda en la base de datos + respuestas por reglas (`features/preguntar/respuestas_demo.dart`) |
-| "La IA llenó los datos" al guardar | Simulado: siempre propone los mismos datos |
+| "Pregúntale a tu cajón" | Búsqueda en el texto leído + respuestas por reglas (`features/preguntar/respuestas_demo.dart`) |
 | Filtros de escáner (Documento, B/N) | Procesamiento de imagen clásico: iluminación pareja, contraste y nitidez, con el paquete `image` (`features/escanear/filtros.dart`) |
 | Recorte al marco de la cámara | Geometría y el paquete `image` (`features/escanear/recorte.dart`) |
+| Bordes del papel automáticos | Visión por computador clásica (bordes + transformada de Hough + perspectiva), sin modelo de IA (`features/escanear/bordes.dart`) |
 
-Si más adelante se agrega IA de verdad (por ejemplo, leer el texto de los documentos o
-responder preguntas), hay que anotarlo aquí: qué modelo, si corre en el celular o en internet,
-y qué datos usa.
+Si más adelante se agrega otro modelo (por ejemplo, para responder preguntas), hay que anotarlo
+aquí: qué modelo, si corre en el celular o en internet, y qué datos usa.
 
 ---
 

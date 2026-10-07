@@ -3,8 +3,10 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
+import 'package:tu_cajon/features/escanear/bordes.dart';
 import 'package:tu_cajon/features/escanear/filtros.dart';
 import 'package:tu_cajon/features/escanear/pixeles.dart';
+import 'package:tu_cajon/features/escanear/procesar_foto.dart';
 import 'package:tu_cajon/features/escanear/revisar_foto.dart';
 
 /// Una foto de 200×300 px.
@@ -130,6 +132,170 @@ void main() {
     final r = resultados.single! as FotoConservada;
     expect(r.filtro, FiltroFoto.byn);
     expect(r.aTodas, isTrue);
+  });
+
+  group('Bordes del papel', () {
+    /// Una foto de 600×800 de un papel blanco con renglones sobre una mesa
+    /// oscura, con el papel en las [esquinas] (fracciones).
+    Uint8List fotoDePapel(List<Offset> esquinas, {int ancho = 600, int alto = 800}) {
+      final f = img.Image(width: ancho, height: alto);
+      img.fill(f, color: img.ColorRgb8(70, 55, 45));
+      img.fillPolygon(
+        f,
+        vertices: [for (final p in esquinas) img.Point(p.dx * ancho, p.dy * alto)],
+        color: img.ColorRgb8(238, 238, 232),
+      );
+      for (var t = 0.2; t < 0.8; t += 0.07) {
+        final a = Offset.lerp(
+          Offset.lerp(esquinas[0], esquinas[3], t),
+          Offset.lerp(esquinas[1], esquinas[2], t),
+          0.15,
+        )!;
+        final b = Offset.lerp(
+          Offset.lerp(esquinas[0], esquinas[3], t),
+          Offset.lerp(esquinas[1], esquinas[2], t),
+          0.85,
+        )!;
+        img.drawLine(
+          f,
+          x1: (a.dx * ancho).round(),
+          y1: (a.dy * alto).round(),
+          x2: (b.dx * ancho).round(),
+          y2: (b.dy * alto).round(),
+          color: img.ColorRgb8(50, 50, 60),
+          thickness: 2,
+        );
+      }
+      return Uint8List.fromList(img.encodeJpg(f, quality: 92));
+    }
+
+    const papel = [Offset(0.15, 0.12), Offset(0.85, 0.1), Offset(0.88, 0.9), Offset(0.12, 0.88)];
+
+    Future<List<RevisionFoto?>> abrirCon(
+      WidgetTester tester, {
+      required Uint8List base,
+      Uint8List? original,
+      Esquinas esquinas = Esquinas.todo,
+    }) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final resultados = <RevisionFoto?>[];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => TextButton(
+              onPressed: () async => resultados.add(
+                await Navigator.of(context).push<RevisionFoto>(
+                  MaterialPageRoute(
+                    builder: (_) =>
+                        RevisarFotoScreen(base: base, original: original, esquinas: esquinas, numero: 1),
+                  ),
+                ),
+              ),
+              child: const Text('abrir'),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('abrir'));
+      await tester.pump(const Duration(milliseconds: 400));
+      await esperarDeVerdad(tester);
+      await tester.pumpAndSettle();
+      return resultados;
+    }
+
+    testWidgets(
+      'Los bordes que se encontraron se reabren sobre la original, y se puede volver a la foto entera',
+      (tester) async {
+        final original = fotoDePapel(papel);
+        final resultados = await abrirCon(
+          tester,
+          base: _foto,
+          original: original,
+          esquinas: Esquinas.deLista(papel),
+        );
+        await tester.tap(find.text('Recortar'));
+        await esperarDeVerdad(tester);
+        await tester.pumpAndSettle();
+        // Se ve la original (600×800), no la página ya recortada (200×300).
+        final foto = tester.getRect(find.byType(RawImage));
+        expect(foto.width / foto.height, closeTo(600 / 800, 0.01));
+        expect(find.textContaining('hasta los bordes del papel'), findsOneWidget);
+
+        await tester.tap(find.bySemanticsLabel('Restablecer recorte'));
+        await tester.pumpAndSettle();
+        expect(find.bySemanticsLabel('Restablecer recorte'), findsNothing);
+        await tester.tap(find.bySemanticsLabel('Recortar').last);
+        await esperarDeVerdad(tester);
+        await tester.tap(find.text('Conservar'));
+        await tester.pumpAndSettle();
+        final r = resultados.single! as FotoConservada;
+        expect(r.base, same(original));
+        expect(r.esquinas!.esTodo, isTrue);
+      },
+    );
+
+    testWidgets('Arrastrar el lado de arriba hasta la mitad deja la mitad de abajo', (tester) async {
+      final resultados = await abrirCon(tester, base: _foto);
+      await tester.tap(find.text('Recortar'));
+      await tester.pumpAndSettle();
+      final foto = tester.getRect(find.byType(RawImage));
+      await tester.dragFrom(foto.topCenter, Offset(0, foto.height / 2));
+      await tester.pumpAndSettle();
+      await tester.tap(find.bySemanticsLabel('Recortar').last);
+      await esperarDeVerdad(tester);
+      await tester.tap(find.text('Conservar'));
+      await tester.pumpAndSettle();
+      final recortada = img.decodeJpg((resultados.single! as FotoConservada).foto)!;
+      expect(recortada.width, 200);
+      expect(recortada.height, closeTo(150, 3));
+    });
+
+    testWidgets('"Detectar" encuentra el papel y al recortar queda derecho', (tester) async {
+      final original = fotoDePapel(papel);
+      final resultados = await abrirCon(tester, base: original);
+      await tester.tap(find.text('Recortar'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.bySemanticsLabel('Detectar'));
+      await esperarDeVerdad(tester);
+      expect(find.textContaining('Encontramos los bordes del papel'), findsOneWidget);
+      await tester.tap(find.bySemanticsLabel('Recortar').last);
+      await esperarDeVerdad(tester);
+      await tester.tap(find.text('Conservar'));
+      await tester.pumpAndSettle();
+
+      final r = resultados.single! as FotoConservada;
+      for (var i = 0; i < 4; i++) {
+        expect((r.esquinas!.lista[i] - papel[i]).distance, lessThan(0.02));
+      }
+      // El papel derecho: el lado más largo de arriba/abajo y de los costados.
+      final derecha = img.decodeJpg(r.base)!;
+      expect(derecha.width, closeTo(456, 12));
+      expect(derecha.height, closeTo(640, 12));
+    });
+
+    testWidgets('Al tomar la foto: si se ve el papel, sale recortado y derecho; si no, queda el marco', (
+      tester,
+    ) async {
+      final conPapel = await tester.runAsync(() => prepararPagina(fotoDePapel(papel)));
+      expect(conPapel!.detectada, isTrue);
+      final derecha = img.decodeJpg(conPapel.base)!;
+      expect(derecha.width, closeTo(456, 12));
+      expect(derecha.height, closeTo(640, 12));
+      expect(img.decodeJpg(conPapel.original)!.width, 600);
+
+      // Sin papel a la vista: lo que está dentro del marco (y la original con un poco más).
+      final lisa = Uint8List.fromList(img.encodeJpg(img.Image(width: 600, height: 800)));
+      final sinPapel = await tester.runAsync(
+        () => prepararPagina(lisa, recorte: const Rect.fromLTRB(0.1, 0.1, 0.9, 0.9), proporcionCamara: 0.75),
+      );
+      expect(sinPapel!.detectada, isFalse);
+      final marco = img.decodeJpg(sinPapel.base)!;
+      expect((marco.width, marco.height), (480, 640));
+      expect(img.decodeJpg(sinPapel.original)!.width, greaterThan(480));
+      expect(sinPapel.esquinas.esTodo, isFalse);
+    });
   });
 
   group('Filtros de escáner', () {

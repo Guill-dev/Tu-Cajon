@@ -59,13 +59,18 @@ abstract interface class CajonRepositorio {
   /// Cambia los datos del documento [id] por los de [datos] (nombre, perfil,
   /// carpeta y vencimiento). Si llegan [paginas] o un [pdf], reemplazan a los
   /// archivos que tenía: primero se guardan los nuevos y después se borran
-  /// los viejos, y el documento cuenta como guardado hoy.
+  /// los viejos, el documento cuenta como guardado hoy y su texto pasa a ser
+  /// el de [datos] (el de las páginas nuevas).
   Future<void> actualizarDocumento(
     String id,
     NuevoDocumento datos, {
     List<Uint8List> paginas = const [],
     Uint8List? pdf,
   });
+
+  /// Guarda el texto que se leyó del documento (para buscar y para
+  /// "Pregúntale"). No cambia nada más.
+  Future<void> guardarTexto(String id, String texto);
 
   Future<void> renombrarDocumento(String id, String nombre);
   Future<void> eliminarDocumento(String id);

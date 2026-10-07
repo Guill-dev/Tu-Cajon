@@ -17,7 +17,11 @@ class TcTextField extends StatelessWidget {
     this.radius = 18,
     this.textInputAction,
     this.onSubmitted,
+    this.marca,
   });
+
+  /// Algo al lado de la etiqueta (p. ej. "Lo leyó la IA").
+  final Widget? marca;
 
   final String label;
   final TextEditingController controller;
@@ -34,7 +38,15 @@ class TcTextField extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(label, style: AppText.bold(16)),
+        if (marca case final marca?)
+          Row(
+            children: [
+              Expanded(child: Text(label, style: AppText.bold(16))),
+              marca,
+            ],
+          )
+        else
+          Text(label, style: AppText.bold(16)),
         const SizedBox(height: 10),
         DecoratedBox(
           decoration: BoxDecoration(borderRadius: br, boxShadow: AppDecor.sombra),

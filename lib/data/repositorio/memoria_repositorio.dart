@@ -207,9 +207,17 @@ class MemoriaCajonRepositorio implements CajonRepositorio {
       tamanoBytes: archivo?.bytes ?? anterior.tamanoBytes,
       venceEn: n.venceEn,
       archivo: archivo?.ruta ?? anterior.archivo,
-      textoExtraido: archivo == null ? anterior.textoExtraido : '',
+      textoExtraido: archivo == null ? anterior.textoExtraido : n.textoExtraido,
     );
     if (archivo != null && anterior.archivo != null) await _archivos.borrar(anterior.archivo!);
+    _avisar();
+  }
+
+  @override
+  Future<void> guardarTexto(String id, String texto) async {
+    final i = _documentos.indexWhere((d) => d.id == id);
+    if (i < 0) return;
+    _documentos[i] = _documentos[i].copyWith(textoExtraido: texto);
     _avisar();
   }
 

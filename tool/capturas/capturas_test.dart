@@ -12,12 +12,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image/image.dart' as img;
 import 'package:tu_cajon/app.dart';
 import 'package:tu_cajon/core/router/app_routes.dart';
+import 'package:tu_cajon/core/theme/app_theme.dart';
 import 'package:tu_cajon/core/seguridad/llave_celular.dart';
 import 'package:tu_cajon/data/datos_ejemplo.dart';
 import 'package:tu_cajon/data/repositorio/memoria_repositorio.dart';
 import 'package:tu_cajon/features/cajon/cajon_shell.dart';
+import 'package:tu_cajon/features/escanear/revisar_foto.dart';
 import 'package:tu_cajon/features/guardar/guardar_screen.dart';
 
 const _carpeta = 'build/capturas';
@@ -72,6 +75,7 @@ void main() {
     for (final canal in [
       'flutter.baseflow.com/permissions/methods',
       'tu_cajon/pdf',
+      'tu_cajon/leer',
       'tu_cajon/recibir',
       'dexterous.com/flutter/local_notifications',
     ]) {
@@ -174,6 +178,82 @@ void main() {
     await cuadros(tester);
     await _capturar(tester, 'ia_guardar');
     await tester.pump(const Duration(seconds: 5));
+  });
+
+  testWidgets('Captura: recortar con los bordes del papel (y la lupa)', (tester) async {
+    // Una hoja con renglones, torcida, sobre una mesa de madera.
+    const papel = [Offset(0.17, 0.14), Offset(0.83, 0.1), Offset(0.9, 0.86), Offset(0.12, 0.9)];
+    final f = img.Image(width: 900, height: 1200);
+    img.fill(f, color: img.ColorRgb8(122, 86, 58));
+    for (var y = 0; y < 1200; y += 37) {
+      img.drawLine(f, x1: 0, y1: y, x2: 900, y2: y + 25, color: img.ColorRgb8(104, 72, 47), thickness: 3);
+    }
+    img.fillPolygon(
+      f,
+      vertices: [for (final p in papel) img.Point(p.dx * 900, p.dy * 1200)],
+      color: img.ColorRgb8(240, 239, 233),
+    );
+    Offset en(double u, double t) {
+      final a = Offset.lerp(papel[0], papel[1], u)!, b = Offset.lerp(papel[3], papel[2], u)!;
+      final p = Offset.lerp(a, b, t)!;
+      return Offset(p.dx * 900, p.dy * 1200);
+    }
+
+    for (var t = 0.12; t < 0.9; t += 0.045) {
+      final a = en(0.1, t), b = en(t < 0.2 ? 0.6 : 0.9, t);
+      img.drawLine(
+        f,
+        x1: a.dx.round(),
+        y1: a.dy.round(),
+        x2: b.dx.round(),
+        y2: b.dy.round(),
+        color: t < 0.2 ? img.ColorRgb8(40, 50, 120) : img.ColorRgb8(70, 70, 80),
+        thickness: t < 0.2 ? 6 : 2,
+      );
+    }
+    final foto = Uint8List.fromList(img.encodeJpg(f, quality: 92));
+
+    tester.view.physicalSize = const Size(1170, 2532);
+    tester.view.devicePixelRatio = 3;
+    tester.view.padding = const FakeViewPadding(top: 120, bottom: 60);
+    tester.view.viewPadding = const FakeViewPadding(top: 120, bottom: 60);
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      RepaintBoundary(
+        key: _marco,
+        child: MaterialApp(
+          debugShowCheckedModeBanner: false,
+          theme: AppTheme.light,
+          home: RevisarFotoScreen(base: foto, numero: 1),
+        ),
+      ),
+    );
+    Future<void> esperar() async {
+      for (var i = 0; i < 8; i++) {
+        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 250)));
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+    }
+
+    await esperar();
+    await tester.tap(find.text('Recortar'));
+    await esperar();
+    await tester.tap(find.bySemanticsLabel('Detectar'));
+    await esperar();
+    await tester.pump(const Duration(seconds: 1));
+    await _capturar(tester, 'bordes_detectados');
+
+    // Con el dedo sobre la esquina de arriba a la izquierda: aparece la lupa.
+    final rect = tester.getRect(find.byType(RawImage));
+    final esquina = Offset(rect.left + papel[0].dx * rect.width, rect.top + papel[0].dy * rect.height);
+    final dedo = await tester.startGesture(esquina);
+    await dedo.moveBy(const Offset(4, 4));
+    await tester.pump();
+    await dedo.moveBy(const Offset(-4, -4));
+    await tester.pump();
+    await _capturar(tester, 'bordes_lupa');
+    await dedo.up();
+    await tester.pump(const Duration(seconds: 1));
   });
 
   testWidgets('Captura: buscar', (tester) async {

@@ -1,4 +1,3 @@
-import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/gestures.dart';
@@ -10,6 +9,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text.dart';
 import '../../shared/widgets/tc_icon.dart';
 import '../../shared/widgets/tc_tap.dart';
+import 'bordes.dart';
 import 'filtros.dart';
 import 'procesar_foto.dart';
 
@@ -22,7 +22,14 @@ sealed class RevisionFoto {
 
 /// Se queda (tal cual, recortada y/o con filtro).
 class FotoConservada extends RevisionFoto {
-  const FotoConservada({required this.base, required this.filtro, required this.foto, this.aTodas = false});
+  const FotoConservada({
+    required this.base,
+    required this.filtro,
+    required this.foto,
+    this.original,
+    this.esquinas,
+    this.aTodas = false,
+  });
 
   /// La foto sin filtro (ya recortada): de ella se parte si se cambia el filtro.
   final Uint8List base;
@@ -30,6 +37,10 @@ class FotoConservada extends RevisionFoto {
 
   /// La foto con el filtro aplicado: la que se guarda.
   final Uint8List foto;
+
+  /// De dónde se recortó [base] y con qué esquinas (para volver a ajustar).
+  final Uint8List? original;
+  final Esquinas? esquinas;
 
   /// La persona pidió usar este filtro en todas las páginas.
   final bool aTodas;
@@ -45,8 +56,10 @@ class FotoEliminada extends RevisionFoto {
 /// - **Filtro**: Original, Documento o B/N (ver [FiltroFoto]). Siempre se
 ///   parte de la foto sin filtro, así cambiar de filtro no la degrada.
 /// - **Eliminar**: la descarta (en Escanear se puede deshacer).
-/// - **Recortar**: aparece un marco con esquinas y bordes que se arrastran;
-///   el visto aplica el recorte y la foto se ve ya recortada.
+/// - **Recortar**: sobre la foto original aparecen los bordes del papel
+///   (los que se encontraron solos, o la foto entera). Se arrastran las
+///   esquinas (con una lupa para afinar) o los lados enteros; "Detectar"
+///   los busca solo. El visto recorta y endereza el papel (perspectiva).
 /// - **Conservar** (el visto verde): vuelve a Escanear con la foto.
 ///
 /// La X o "atrás" vuelven sin cambios.
@@ -56,6 +69,9 @@ class RevisarFotoScreen extends StatefulWidget {
     required this.base,
     this.filtro = FiltroFoto.original,
     this.foto,
+    this.original,
+    this.esquinas = Esquinas.todo,
+    this.proporciones = const [],
     required this.numero,
     this.total = 1,
   });
@@ -66,6 +82,13 @@ class RevisarFotoScreen extends StatefulWidget {
 
   /// La foto con [filtro] ya aplicado (si no llega, se usa [base]).
   final Uint8List? foto;
+
+  /// De dónde salió [base] y con qué [esquinas] (si no llega, de sí misma).
+  final Uint8List? original;
+  final Esquinas esquinas;
+
+  /// Proporciones del papel esperado, para enderezar (tarjeta, hoja).
+  final List<double> proporciones;
   final int numero;
 
   /// Cuántas páginas hay (para "Usar en todas").
@@ -76,11 +99,15 @@ class RevisarFotoScreen extends StatefulWidget {
 }
 
 class _RevisarFotoScreenState extends State<RevisarFotoScreen> {
-  static const _entera = Rect.fromLTRB(0, 0, 1, 1);
-
   late Uint8List _base = widget.base;
   late FiltroFoto _filtro = widget.filtro;
   late Uint8List _foto = widget.foto ?? widget.base;
+
+  /// De dónde se recorta: no cambia, así los bordes se pueden volver a abrir.
+  late final Uint8List _original = widget.original ?? widget.base;
+
+  /// Las esquinas con las que [_base] salió de [_original].
+  late Esquinas _esquinas = widget.original == null ? Esquinas.todo : widget.esquinas;
 
   /// Filtros ya calculados para esta foto: volver a uno es instantáneo.
   late final Map<FiltroFoto, Uint8List> _hechos = {FiltroFoto.original: _base, _filtro: _foto};
@@ -88,43 +115,77 @@ class _RevisarFotoScreenState extends State<RevisarFotoScreen> {
   /// La foto decodificada: se dibuja y da el tamaño para el recortador.
   ui.Image? _imagen;
 
+  /// La original decodificada (si no es la misma que [_foto]).
+  ui.Image? _imagenOriginal;
+
   bool _recortando = false;
 
-  /// Recortando o aplicando un filtro (en otro hilo).
+  /// Recortando, buscando bordes o aplicando un filtro (en otro hilo).
   bool _procesando = false;
   bool _recortada = false;
 
-  /// Parte elegida con el recortador, en fracciones de la foto.
-  Rect _parte = _entera;
+  /// Los bordes mientras se ajustan, en fracciones de la original.
+  Esquinas _editando = Esquinas.todo;
+
+  /// Un aviso corto en lugar de la pista ("No encontramos los bordes…").
+  String? _mensaje;
+
+  /// Con qué se dibuja el recortador: la original.
+  ui.Image? get _paraRecortar => identical(_original, _foto) ? _imagen : _imagenOriginal;
 
   @override
   void initState() {
     super.initState();
     _decodificar();
+    _decodificarOriginal();
   }
 
   @override
   void dispose() {
     _imagen?.dispose();
+    _imagenOriginal?.dispose();
     super.dispose();
   }
 
-  Future<void> _decodificar() async {
-    final codec = await ui.instantiateImageCodec(_foto);
+  static Future<ui.Image> _abrir(Uint8List bytes) async {
+    final codec = await ui.instantiateImageCodec(bytes);
     final cuadro = await codec.getNextFrame();
     codec.dispose();
+    return cuadro.image;
+  }
+
+  Future<void> _decodificar() async {
+    final imagen = await _abrir(_foto);
     if (!mounted) {
-      cuadro.image.dispose();
+      imagen.dispose();
       return;
     }
     setState(() {
       _imagen?.dispose();
-      _imagen = cuadro.image;
+      _imagen = imagen;
     });
   }
 
-  void _conservar({bool aTodas = false}) =>
-      Navigator.of(context).pop(FotoConservada(base: _base, filtro: _filtro, foto: _foto, aTodas: aTodas));
+  Future<void> _decodificarOriginal() async {
+    if (_imagenOriginal != null || identical(_original, _foto)) return;
+    final imagen = await _abrir(_original);
+    if (!mounted || _imagenOriginal != null) {
+      imagen.dispose();
+      return;
+    }
+    setState(() => _imagenOriginal = imagen);
+  }
+
+  void _conservar({bool aTodas = false}) => Navigator.of(context).pop(
+    FotoConservada(
+      base: _base,
+      filtro: _filtro,
+      foto: _foto,
+      original: _original,
+      esquinas: _esquinas,
+      aTodas: aTodas,
+    ),
+  );
 
   Future<void> _elegirFiltro(FiltroFoto filtro) async {
     if (filtro == _filtro || _procesando) return;
@@ -149,29 +210,67 @@ class _RevisarFotoScreenState extends State<RevisarFotoScreen> {
     Navigator.of(context).pop(const FotoEliminada());
   }
 
-  void _empezarRecorte() => setState(() {
-    _parte = _entera;
-    _recortando = true;
+  void _empezarRecorte() {
+    _decodificarOriginal();
+    setState(() {
+      _editando = _esquinas;
+      _mensaje = null;
+      _recortando = true;
+    });
+  }
+
+  void _cancelarRecorte() => setState(() {
+    _recortando = false;
+    _mensaje = null;
   });
 
-  void _cancelarRecorte() => setState(() => _recortando = false);
+  /// "Detectar": busca los bordes del papel en la original.
+  Future<void> _detectar() async {
+    if (_procesando) return;
+    setState(() {
+      _procesando = true;
+      _mensaje = null;
+    });
+    Esquinas? halladas;
+    try {
+      halladas = await detectarEnFoto(_original);
+    } catch (e) {
+      debugPrint('No se pudieron buscar los bordes: $e');
+    }
+    if (!mounted) return;
+    setState(() {
+      _procesando = false;
+      if (halladas != null) {
+        _editando = halladas;
+        _mensaje = 'Encontramos los bordes del papel. Ajústalos si hace falta.';
+      } else {
+        _mensaje = 'No encontramos los bordes del papel: muévelos con el dedo.';
+      }
+    });
+    HapticFeedback.selectionClick();
+  }
 
-  /// Recorta la foto sin filtro y le vuelve a poner el filtro elegido.
+  /// Recorta y endereza el papel desde la original, y le vuelve a poner el
+  /// filtro elegido.
   Future<void> _aplicarRecorte() async {
     if (_procesando) return;
-    if (_parte == _entera) {
+    if (_editando.casiIgual(_esquinas)) {
       _cancelarRecorte();
       return;
     }
     setState(() => _procesando = true);
     try {
-      _base = await recortarParte(_base, _parte);
+      final nuevas = _editando;
+      _base = nuevas.esTodo
+          ? _original
+          : await enderezarFoto(_original, nuevas, proporciones: widget.proporciones);
       final foto = await aplicarFiltro(_base, _filtro);
       _hechos
         ..clear()
         ..[FiltroFoto.original] = _base
         ..[_filtro] = foto;
       _foto = foto;
+      _esquinas = nuevas;
       _recortada = true;
       await _decodificar();
     } catch (e) {
@@ -181,6 +280,7 @@ class _RevisarFotoScreenState extends State<RevisarFotoScreen> {
       setState(() {
         _procesando = false;
         _recortando = false;
+        _mensaje = null;
       });
     }
   }
@@ -226,7 +326,8 @@ class _RevisarFotoScreenState extends State<RevisarFotoScreen> {
   }
 
   String get _pista {
-    if (_recortando) return 'Arrastra las esquinas o los bordes. Toca el visto para recortar.';
+    if (_mensaje case final mensaje?) return mensaje;
+    if (_recortando) return 'Arrastra las esquinas hasta los bordes del papel. Toca el visto para recortar.';
     if (_recortada) return 'Así quedó recortada. Toca el visto para conservarla.';
     return '¿Se ve bien? Mejórala con un filtro, recórtala o elimínala.';
   }
@@ -302,12 +403,15 @@ class _RevisarFotoScreenState extends State<RevisarFotoScreen> {
                 style: AppText.bold(17, color: Colors.white),
               ),
             ),
-            // "Restablecer" deja el marco del recortador en la foto entera.
+            // "Restablecer" deja los bordes en la foto entera.
             SizedBox(
               width: 48,
-              child: _recortando && _parte != _entera
+              child: _recortando && !_editando.esTodo
                   ? TcTap(
-                      onTap: () => setState(() => _parte = _entera),
+                      onTap: () => setState(() {
+                        _editando = Esquinas.todo;
+                        _mensaje = null;
+                      }),
                       radius: 24,
                       width: 48,
                       height: 48,
@@ -323,16 +427,17 @@ class _RevisarFotoScreenState extends State<RevisarFotoScreen> {
   }
 
   Widget _areaFoto() {
-    final imagen = _imagen;
-    // Sin Padding alrededor: el margen queda dentro del área, así los bordes
-    // del recortador se pueden agarrar aunque la foto llegue al margen.
+    // Al recortar se ve la original entera (con lo que quedó afuera del recorte).
+    final imagen = _recortando ? _paraRecortar : _imagen;
+    // Sin Padding alrededor: el margen queda dentro del área, así las
+    // esquinas se pueden agarrar aunque la foto llegue al margen.
     return LayoutBuilder(
       builder: (context, limites) {
         if (imagen == null) {
           return const Center(child: CircularProgressIndicator(color: AppColors.camaraMarco));
         }
         // Dónde queda la foto dentro del área (entera, centrada).
-        final area = const EdgeInsets.fromLTRB(24, 16, 24, 16).deflateRect(Offset.zero & limites.biggest);
+        final area = const EdgeInsets.fromLTRB(28, 20, 28, 20).deflateRect(Offset.zero & limites.biggest);
         final tamFoto = Size(imagen.width.toDouble(), imagen.height.toDouble());
         final ajuste = applyBoxFit(BoxFit.contain, tamFoto, area.size);
         final rectFoto = Alignment.center.inscribe(ajuste.destination, area);
@@ -351,10 +456,14 @@ class _RevisarFotoScreenState extends State<RevisarFotoScreen> {
             ),
             if (_recortando)
               Positioned.fill(
-                child: _Recortador(
+                child: _EditorBordes(
                   foto: rectFoto,
-                  parte: _parte,
-                  onCambio: (p) => setState(() => _parte = p),
+                  imagen: imagen,
+                  esquinas: _editando,
+                  onCambio: (e) => setState(() {
+                    _editando = e;
+                    _mensaje = null;
+                  }),
                 ),
               ),
             if (_procesando) const Center(child: CircularProgressIndicator(color: AppColors.camaraMarco)),
@@ -412,6 +521,14 @@ class _RevisarFotoScreenState extends State<RevisarFotoScreen> {
               etiqueta: 'Cancelar',
               color: Colors.white,
               onTap: _procesando ? null : _cancelarRecorte,
+            ),
+          ),
+          Expanded(
+            child: _Accion(
+              icono: AppIcons.destelloSolo,
+              etiqueta: 'Detectar',
+              color: AppColors.camaraFlash,
+              onTap: _procesando || _paraRecortar == null ? null : _detectar,
             ),
           ),
           Expanded(
@@ -515,194 +632,296 @@ class _BotonRedondo extends StatelessWidget {
   }
 }
 
-/// De dónde se está arrastrando el recortador.
-enum _Agarre { arribaIzq, arribaDer, abajoIzq, abajoDer, izq, der, arriba, abajo, mover }
-
-/// Marco de recorte sobre la foto: se arrastran las esquinas, los bordes o
-/// el marco entero. Lo que queda afuera se oscurece.
-class _Recortador extends StatefulWidget {
-  const _Recortador({required this.foto, required this.parte, required this.onCambio});
+/// Los bordes del papel sobre la foto: se arrastran las cuatro esquinas
+/// (con una lupa para ver dónde quedan) o un lado entero (agarrándolo por la
+/// mitad). Lo que queda afuera se oscurece.
+class _EditorBordes extends StatefulWidget {
+  const _EditorBordes({
+    required this.foto,
+    required this.imagen,
+    required this.esquinas,
+    required this.onCambio,
+  });
 
   /// Dónde está la foto en pantalla.
   final Rect foto;
 
-  /// Parte elegida, en fracciones de la foto.
-  final Rect parte;
-  final ValueChanged<Rect> onCambio;
+  /// La foto, para la lupa.
+  final ui.Image imagen;
+
+  /// En fracciones de la foto.
+  final Esquinas esquinas;
+  final ValueChanged<Esquinas> onCambio;
 
   @override
-  State<_Recortador> createState() => _RecortadorState();
+  State<_EditorBordes> createState() => _EditorBordesState();
 }
 
-class _RecortadorState extends State<_Recortador> {
-  /// Distancia (en px) a la que un dedo "agarra" una esquina o un borde.
-  static const _alcance = 32.0;
+class _EditorBordesState extends State<_EditorBordes> {
+  /// Distancia (en px) a la que un dedo agarra una esquina o un lado.
+  static const _alcanceEsquina = 40.0;
+  static const _alcanceLado = 34.0;
 
-  /// El recorte no puede quedar más chico que esto (en px de pantalla).
-  static const _minimo = 48.0;
+  /// Qué se está arrastrando: una esquina (0 a 3) o un lado (0 a 3, el que
+  /// va de la esquina i a la siguiente).
+  int? _esquina;
+  int? _lado;
 
-  _Agarre? _agarre;
-
-  /// Dónde se apoyó el dedo y cómo estaba el recorte en ese momento: el
-  /// borde se mueve lo mismo que el dedo desde ahí, sin quedarse atrás.
+  /// Dónde se apoyó el dedo y cómo estaban los bordes entonces: se mueven lo
+  /// mismo que el dedo desde ahí.
   Offset _inicio = Offset.zero;
-  Rect _parteInicial = const Rect.fromLTRB(0, 0, 1, 1);
+  Esquinas _inicial = Esquinas.todo;
 
-  void _empezar(Offset punto) {
-    _agarre = _queAgarra(punto);
-    _inicio = punto;
-    _parteInicial = widget.parte;
-  }
+  Offset _enPantalla(Offset f) =>
+      Offset(widget.foto.left + f.dx * widget.foto.width, widget.foto.top + f.dy * widget.foto.height);
 
-  Rect get _enPantalla {
-    final f = widget.foto;
-    final p = widget.parte;
-    return Rect.fromLTRB(
-      f.left + p.left * f.width,
-      f.top + p.top * f.height,
-      f.left + p.right * f.width,
-      f.top + p.bottom * f.height,
-    );
-  }
+  List<Offset> get _puntos => [for (final e in widget.esquinas.lista) _enPantalla(e)];
 
-  _Agarre? _queAgarra(Offset punto) {
-    final r = _enPantalla;
-    bool cerca(Offset esquina) => (punto - esquina).distance <= _alcance;
-    if (cerca(r.topLeft)) return _Agarre.arribaIzq;
-    if (cerca(r.topRight)) return _Agarre.arribaDer;
-    if (cerca(r.bottomLeft)) return _Agarre.abajoIzq;
-    if (cerca(r.bottomRight)) return _Agarre.abajoDer;
-    final dentroV = punto.dy > r.top - _alcance && punto.dy < r.bottom + _alcance;
-    final dentroH = punto.dx > r.left - _alcance && punto.dx < r.right + _alcance;
-    if (dentroV && (punto.dx - r.left).abs() <= _alcance) return _Agarre.izq;
-    if (dentroV && (punto.dx - r.right).abs() <= _alcance) return _Agarre.der;
-    if (dentroH && (punto.dy - r.top).abs() <= _alcance) return _Agarre.arriba;
-    if (dentroH && (punto.dy - r.bottom).abs() <= _alcance) return _Agarre.abajo;
-    if (r.contains(punto)) return _Agarre.mover;
-    return null;
-  }
-
-  /// [punto]: dónde está el dedo ahora.
-  void _arrastrar(Offset punto) {
-    final agarre = _agarre;
-    if (agarre == null) return;
-    final f = widget.foto;
-    final movido = punto - _inicio;
-    final dx = movido.dx / f.width;
-    final dy = movido.dy / f.height;
-    final minW = math.min(1.0, _minimo / f.width);
-    final minH = math.min(1.0, _minimo / f.height);
-    var Rect(:left, :top, :right, :bottom) = _parteInicial;
-
-    if (agarre == _Agarre.mover) {
-      final w = right - left;
-      final h = bottom - top;
-      left = (left + dx).clamp(0.0, 1.0 - w);
-      top = (top + dy).clamp(0.0, 1.0 - h);
-      widget.onCambio(Rect.fromLTWH(left, top, w, h));
+  void _empezar(Offset dedo) {
+    final p = _puntos;
+    _inicio = dedo;
+    _inicial = widget.esquinas;
+    _esquina = null;
+    _lado = null;
+    var mejor = _alcanceEsquina;
+    for (var i = 0; i < 4; i++) {
+      final d = (p[i] - dedo).distance;
+      if (d <= mejor) {
+        mejor = d;
+        _esquina = i;
+      }
+    }
+    if (_esquina != null) {
+      setState(() {});
       return;
     }
-    if (agarre case _Agarre.izq || _Agarre.arribaIzq || _Agarre.abajoIzq) {
-      left = (left + dx).clamp(0.0, right - minW);
+    mejor = _alcanceLado;
+    for (var i = 0; i < 4; i++) {
+      final d = ((p[i] + p[(i + 1) % 4]) / 2 - dedo).distance;
+      if (d <= mejor) {
+        mejor = d;
+        _lado = i;
+      }
     }
-    if (agarre case _Agarre.der || _Agarre.arribaDer || _Agarre.abajoDer) {
-      right = (right + dx).clamp(left + minW, 1.0);
+  }
+
+  Offset _limitar(Offset f) => Offset(f.dx.clamp(0.0, 1.0), f.dy.clamp(0.0, 1.0));
+
+  void _arrastrar(Offset dedo) {
+    final movido = dedo - _inicio;
+    final d = Offset(movido.dx / widget.foto.width, movido.dy / widget.foto.height);
+    Esquinas nuevas;
+    if (_esquina case final i?) {
+      nuevas = _inicial.cambiar(i, _limitar(_inicial.lista[i] + d));
+    } else if (_lado case final i?) {
+      final j = (i + 1) % 4;
+      nuevas = _inicial
+          .cambiar(i, _limitar(_inicial.lista[i] + d))
+          .cambiar(j, _limitar(_inicial.lista[j] + d));
+    } else {
+      return;
     }
-    if (agarre case _Agarre.arriba || _Agarre.arribaIzq || _Agarre.arribaDer) {
-      top = (top + dy).clamp(0.0, bottom - minH);
-    }
-    if (agarre case _Agarre.abajo || _Agarre.abajoIzq || _Agarre.abajoDer) {
-      bottom = (bottom + dy).clamp(top + minH, 1.0);
-    }
-    widget.onCambio(Rect.fromLTRB(left, top, right, bottom));
+    // Sin lados cruzados ni papel de nada: ese movimiento no se acepta.
+    if (nuevas.esValido) widget.onCambio(nuevas);
+  }
+
+  void _soltar() {
+    if (_esquina != null) setState(() => _esquina = null);
+    _lado = null;
   }
 
   @override
   Widget build(BuildContext context) {
+    final puntos = _puntos;
+    final esquina = _esquina;
     return Semantics(
-      label: 'Marco de recorte. Arrastra las esquinas o los bordes para ajustarlo.',
+      label: 'Bordes del papel. Arrastra las esquinas o los lados para ajustarlos.',
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        // Se agarra lo que está donde se apoyó el dedo, no donde está al
-        // empezar a moverse (si no, un gesto rápido agarraría otro borde).
+        // Se agarra lo que está donde se apoyó el dedo (si no, un gesto
+        // rápido agarraría otra esquina).
         dragStartBehavior: DragStartBehavior.down,
         onPanStart: (d) => _empezar(d.localPosition),
         onPanUpdate: (d) => _arrastrar(d.localPosition),
-        onPanEnd: (_) => _agarre = null,
-        onPanCancel: () => _agarre = null,
+        onPanEnd: (_) => _soltar(),
+        onPanCancel: _soltar,
+        child: LayoutBuilder(
+          builder: (context, limites) => Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Positioned.fill(
+                child: CustomPaint(
+                  painter: _BordesPainter(foto: widget.foto, puntos: puntos, activa: esquina),
+                ),
+              ),
+              if (esquina != null) _lupa(puntos, esquina, limites.biggest),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Un círculo con la foto ampliada alrededor de la esquina, arriba del
+  /// dedo (o debajo, si no cabe), para dejarla justo en el borde del papel.
+  Widget _lupa(List<Offset> puntos, int i, Size area) {
+    const tam = 112.0;
+    final punto = puntos[i];
+    // Arriba del dedo (puede tapar la pista de arriba mientras se arrastra).
+    final arriba = punto.dy - 96 - tam / 2 >= -150;
+    final centro = Offset(
+      punto.dx.clamp(tam / 2, area.width - tam / 2),
+      arriba ? punto.dy - 96 : punto.dy + 96,
+    );
+    return Positioned(
+      left: centro.dx - tam / 2,
+      top: centro.dy - tam / 2,
+      width: tam,
+      height: tam,
+      child: IgnorePointer(
         child: CustomPaint(
-          painter: _RecortePainter(foto: widget.foto, recorte: _enPantalla),
+          painter: _LupaPainter(
+            imagen: widget.imagen,
+            foto: widget.foto,
+            punto: punto,
+            vecinos: [puntos[(i + 3) % 4], puntos[(i + 1) % 4]],
+          ),
         ),
       ),
     );
   }
 }
 
-/// Oscurece la foto fuera del recorte y dibuja el marco, la cuadrícula de
-/// tercios y las agarraderas (esquinas y mitad de cada borde).
-class _RecortePainter extends CustomPainter {
-  const _RecortePainter({required this.foto, required this.recorte});
+/// Oscurece lo que queda fuera del papel y dibuja sus bordes, las esquinas
+/// (círculos) y la mitad de cada lado (una rayita para arrastrarlo entero).
+class _BordesPainter extends CustomPainter {
+  const _BordesPainter({required this.foto, required this.puntos, required this.activa});
 
   final Rect foto;
-  final Rect recorte;
+  final List<Offset> puntos;
+  final int? activa;
 
   @override
   void paint(Canvas canvas, Size size) {
+    final papel = Path()..addPolygon(puntos, true);
     canvas.drawPath(
       Path()
         ..fillType = PathFillType.evenOdd
         ..addRect(foto)
-        ..addRect(recorte),
-      Paint()..color = const Color(0x99000000),
+        ..addPath(papel, Offset.zero),
+      Paint()..color = const Color(0x8C000000),
+    );
+    canvas.drawPath(
+      papel,
+      Paint()
+        ..color = AppColors.camaraMarco
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.5
+        ..strokeJoin = StrokeJoin.round,
     );
 
-    final linea = Paint()
+    // Rayita en la mitad de cada lado, en la dirección del lado.
+    final raya = Paint()
       ..color = Colors.white
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5;
-    canvas.drawRect(recorte, linea);
-
-    // Cuadrícula de tercios, suave.
-    final guia = Paint()
-      ..color = const Color(0x59FFFFFF)
-      ..strokeWidth = 1;
-    for (var i = 1; i < 3; i++) {
-      final x = recorte.left + recorte.width * i / 3;
-      final y = recorte.top + recorte.height * i / 3;
-      canvas.drawLine(Offset(x, recorte.top), Offset(x, recorte.bottom), guia);
-      canvas.drawLine(Offset(recorte.left, y), Offset(recorte.right, y), guia);
+      ..strokeWidth = 6
+      ..strokeCap = StrokeCap.round;
+    for (var i = 0; i < 4; i++) {
+      final a = puntos[i], b = puntos[(i + 1) % 4];
+      final medio = (a + b) / 2;
+      final largo = (b - a).distance;
+      if (largo < 60) continue;
+      final u = (b - a) / largo * 12;
+      canvas.drawLine(medio - u, medio + u, raya);
     }
 
-    // Esquinas en L y rayitas en la mitad de cada borde.
-    final agarradera = Paint()
-      ..color = AppColors.camaraMarco
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 4
-      ..strokeCap = StrokeCap.round;
-    const largo = 22.0;
-    final r = recorte;
-    for (final (esquina, sx, sy) in [
-      (r.topLeft, 1.0, 1.0),
-      (r.topRight, -1.0, 1.0),
-      (r.bottomLeft, 1.0, -1.0),
-      (r.bottomRight, -1.0, -1.0),
-    ]) {
-      canvas.drawPath(
-        Path()
-          ..moveTo(esquina.dx, esquina.dy + sy * largo)
-          ..lineTo(esquina.dx, esquina.dy)
-          ..lineTo(esquina.dx + sx * largo, esquina.dy),
-        agarradera,
+    for (var i = 0; i < 4; i++) {
+      final r = i == activa ? 15.0 : 11.0;
+      canvas.drawCircle(puntos[i], r, Paint()..color = i == activa ? AppColors.camaraMarco : Colors.white);
+      canvas.drawCircle(
+        puntos[i],
+        r,
+        Paint()
+          ..color = AppColors.camaraMarco
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 3,
       );
     }
-    const medio = 12.0;
-    canvas.drawLine(Offset(r.center.dx - medio, r.top), Offset(r.center.dx + medio, r.top), agarradera);
-    canvas.drawLine(Offset(r.center.dx - medio, r.bottom), Offset(r.center.dx + medio, r.bottom), agarradera);
-    canvas.drawLine(Offset(r.left, r.center.dy - medio), Offset(r.left, r.center.dy + medio), agarradera);
-    canvas.drawLine(Offset(r.right, r.center.dy - medio), Offset(r.right, r.center.dy + medio), agarradera);
   }
 
   @override
-  bool shouldRepaint(_RecortePainter oldDelegate) =>
-      oldDelegate.foto != foto || oldDelegate.recorte != recorte;
+  bool shouldRepaint(_BordesPainter oldDelegate) =>
+      oldDelegate.foto != foto || oldDelegate.activa != activa || !_mismos(oldDelegate.puntos, puntos);
+
+  static bool _mismos(List<Offset> a, List<Offset> b) {
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+}
+
+/// La lupa: la foto ampliada 2,5 veces alrededor del [punto], con los dos
+/// lados que salen de esa esquina y una cruz en el centro.
+class _LupaPainter extends CustomPainter {
+  const _LupaPainter({required this.imagen, required this.foto, required this.punto, required this.vecinos});
+
+  static const _aumento = 2.5;
+
+  final ui.Image imagen;
+  final Rect foto;
+  final Offset punto;
+  final List<Offset> vecinos;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final circulo = Offset.zero & size;
+    final centro = circulo.center;
+    canvas.save();
+    canvas.clipPath(Path()..addOval(circulo));
+    canvas.drawRect(circulo, Paint()..color = AppColors.fondoCamara);
+
+    // Qué parte de la foto (en sus píxeles) va en la lupa.
+    final escala = imagen.width / foto.width;
+    final medio = size.width / 2 / _aumento;
+    final enFoto = Offset((punto.dx - foto.left) * escala, (punto.dy - foto.top) * escala);
+    final fuente = Rect.fromCenter(center: enFoto, width: 2 * medio * escala, height: 2 * medio * escala);
+    final dentro = fuente.intersect(Offset.zero & Size(imagen.width.toDouble(), imagen.height.toDouble()));
+    if (dentro.width > 0 && dentro.height > 0) {
+      // Solo lo que está dentro de la foto (lo de afuera queda oscuro).
+      Offset aLupa(Offset p) => centro + (p - enFoto) / escala * _aumento;
+      canvas.drawImageRect(
+        imagen,
+        dentro,
+        Rect.fromPoints(aLupa(dentro.topLeft), aLupa(dentro.bottomRight)),
+        Paint()..filterQuality = FilterQuality.medium,
+      );
+    }
+
+    // Los lados que salen de la esquina, también ampliados.
+    final lado = Paint()
+      ..color = AppColors.camaraMarco
+      ..strokeWidth = 2
+      ..style = PaintingStyle.stroke;
+    for (final v in vecinos) {
+      canvas.drawLine(centro, centro + (v - punto) * _aumento, lado);
+    }
+    final cruz = Paint()
+      ..color = Colors.white
+      ..strokeWidth = 1.5;
+    canvas.drawLine(centro - const Offset(10, 0), centro + const Offset(10, 0), cruz);
+    canvas.drawLine(centro - const Offset(0, 10), centro + const Offset(0, 10), cruz);
+    canvas.restore();
+
+    canvas.drawOval(
+      circulo.deflate(1.5),
+      Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_LupaPainter oldDelegate) =>
+      oldDelegate.punto != punto || oldDelegate.imagen != imagen || oldDelegate.foto != foto;
 }

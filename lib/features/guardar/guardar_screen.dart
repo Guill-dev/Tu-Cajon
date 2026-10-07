@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
@@ -11,6 +13,7 @@ import '../../core/theme/app_text.dart';
 import '../../core/formato.dart';
 import '../../data/models/categoria.dart';
 import '../../data/models/documento.dart';
+import '../../data/lectura/lectura_de_documentos.dart';
 import '../../data/models/perfil.dart';
 import '../../data/repositorio/repositorio_scope.dart';
 import '../../shared/widgets/buttons.dart';
@@ -21,6 +24,7 @@ import '../../shared/widgets/tc_icon.dart';
 import '../../shared/widgets/tc_tap.dart';
 import '../../shared/widgets/text_field.dart';
 import '../paginas/paginas_screen.dart';
+import '../texto/texto_leido_screen.dart';
 
 /// De dónde vienen las fotos (a dónde lleva "Otra página").
 enum OrigenFotos { camara, galeria }
@@ -90,6 +94,24 @@ class EditarDatos {
   final Documento documento;
 }
 
+/// Datos que la lectura del documento puede llenar.
+enum _Campo {
+  nombre('el nombre'),
+  tipo('el tipo'),
+  fecha('la fecha de vencimiento');
+
+  const _Campo(this.comoTexto);
+
+  final String comoTexto;
+}
+
+enum _Lectura {
+  /// No se está leyendo (editar datos, modo simulado o sin lector).
+  nada,
+  leyendo,
+  lista,
+}
+
 enum _Modo {
   /// Un documento nuevo.
   nuevo,
@@ -137,8 +159,8 @@ class GuardarScreen extends StatefulWidget {
 }
 
 class _GuardarScreenState extends State<GuardarScreen> {
-  // Nada se adivina: todavía no hay nada que lea el papel. Un PDF propone el
-  // nombre de su archivo; al reemplazar, quedan los datos que ya tenía.
+  // Un PDF propone el nombre de su archivo; al reemplazar, quedan los datos
+  // que ya tenía. Lo demás lo llena la lectura del documento, si se puede.
   late final _nombre = TextEditingController(
     text: widget.existente?.nombre ?? widget.pdf?.nombreSugerido ?? '',
   );
@@ -149,6 +171,26 @@ class _GuardarScreenState extends State<GuardarScreen> {
   late DateTime _fecha = widget.existente?.venceEn ?? DateTime.now().add(const Duration(days: 365));
 
   late final Stream<List<Perfil>> _perfiles = context.repo.vigilarPerfiles();
+
+  // ── Lectura del documento ──
+  _Lectura _estadoLectura = _Lectura.nada;
+  Future<Lectura?>? _leyendo;
+  Lectura? _lectura;
+
+  /// Página que se está leyendo: (las que ya se leyeron, cuántas son).
+  (int, int)? _avance;
+
+  /// Lo que llenó la lectura (para el recuadro de arriba).
+  final _leidos = <_Campo>{};
+
+  /// Lo que sigue tal como lo llenó la lectura (se marca con "Lo leyó la IA").
+  final _llenados = <_Campo>{};
+
+  /// Lo que la persona ya cambió: la lectura no lo toca.
+  final _tocados = <_Campo>{};
+
+  /// El nombre que hay ahora, para saber si un cambio lo hizo la persona.
+  late String _nombreAnterior = _nombre.text;
 
   String get _fechaTexto => Formato.fechaLarga(_fecha);
 
@@ -161,7 +203,91 @@ class _GuardarScreenState extends State<GuardarScreen> {
   @override
   void initState() {
     super.initState();
-    _nombre.addListener(() => setState(() {}));
+    _nombre.addListener(() {
+      if (_nombre.text != _nombreAnterior) {
+        _nombreAnterior = _nombre.text;
+        _tocar(_Campo.nombre);
+      }
+      setState(() {});
+    });
+    _empezarLectura();
+  }
+
+  /// La persona cambió algo: deja de estar marcado como leído y no se pisa.
+  void _tocar(_Campo campo) {
+    _tocados.add(campo);
+    _llenados.remove(campo);
+  }
+
+  /// Con fotos reales o un PDF, se lee el documento mientras la persona
+  /// revisa los datos. Un PDF con contraseña no se puede leer.
+  void _empezarLectura() {
+    final lectura = context.lectura;
+    final hayPaginas = widget.fotos.isNotEmpty || (widget.pdf != null && widget.pdf!.aviso == null);
+    if (_modo == _Modo.editar || !hayPaginas || !lectura.disponible) return;
+    _estadoLectura = _Lectura.leyendo;
+    // En una microtarea: el avance llama a setState, que no se puede en initState.
+    _leyendo =
+        Future.microtask(
+              () => lectura.leer(
+                fotos: widget.fotos,
+                pdf: widget.fotos.isEmpty ? widget.pdf?.bytes : null,
+                alAvanzar: (leidas, total) {
+                  if (mounted) setState(() => _avance = (leidas, total));
+                },
+              ),
+            )
+            .then<Lectura?>((l) {
+              if (mounted) _aplicar(l);
+              return l;
+            })
+            .catchError((Object e) {
+              // Sin lector (p. ej. en el navegador) o algo falló: se sigue sin lectura.
+              debugPrint('No se pudo leer el documento: $e');
+              if (mounted) setState(() => _estadoLectura = _Lectura.nada);
+              return null;
+            });
+  }
+
+  /// Llena lo que la persona no ha tocado. Al reemplazar, solo la fecha (el
+  /// documento ya tiene su nombre y su tipo).
+  void _aplicar(Lectura lectura) {
+    final d = lectura.datos;
+    setState(() {
+      _lectura = lectura;
+      _estadoLectura = _Lectura.lista;
+      if (_modo == _Modo.nuevo) {
+        final nombre = d.nombre;
+        final actual = _nombre.text.trim();
+        // El nombre del archivo de un PDF se cambia solo si se reconoció el documento.
+        final cambiable = actual.isEmpty || (d.reconocido && actual == widget.pdf?.nombreSugerido);
+        if (nombre != null && !_tocados.contains(_Campo.nombre) && cambiable) {
+          _nombreAnterior = nombre;
+          _nombre.text = nombre;
+          _llenados.add(_Campo.nombre);
+        }
+        if (d.categoria case final categoria? when !_tocados.contains(_Campo.tipo)) {
+          _categoria = categoria;
+          _llenados.add(_Campo.tipo);
+        }
+      }
+      if (d.venceEn case final vence? when !_tocados.contains(_Campo.fecha)) {
+        _seVence = true;
+        _fecha = vence;
+        _llenados.add(_Campo.fecha);
+      }
+      _leidos.addAll(_llenados);
+    });
+  }
+
+  void _verLoQueLeyo() {
+    final lectura = _lectura;
+    if (lectura == null) return;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => TextoLeidoScreen(texto: lectura.texto, numero: lectura.datos.numero),
+      ),
+    );
   }
 
   @override
@@ -182,7 +308,12 @@ class _GuardarScreenState extends State<GuardarScreen> {
       lastDate: _fecha.isAfter(hasta) ? _fecha : hasta,
       helpText: 'Fecha de vencimiento',
     );
-    if (elegida != null) setState(() => _fecha = elegida);
+    if (elegida != null) {
+      setState(() {
+        _fecha = elegida;
+        _tocar(_Campo.fecha);
+      });
+    }
   }
 
   Future<void> _guardar() async {
@@ -195,6 +326,7 @@ class _GuardarScreenState extends State<GuardarScreen> {
     final pdf = widget.pdf;
     final existente = widget.existente;
     final modo = _modo;
+    final repo = context.repo;
     final datos = NuevoDocumento(
       perfilId: _perfilId,
       nombre: _nombre.text,
@@ -203,20 +335,29 @@ class _GuardarScreenState extends State<GuardarScreen> {
       // Sin fotos reales (modo simulado): tamaño aproximado de un escaneo.
       tamanoBytes: pdf?.bytes.length ?? widget.paginas * 240 * 1024,
       venceEn: _seVence ? _fecha : null,
+      textoExtraido: _lectura?.texto ?? '',
     );
     try {
       // Con fotos reales o un PDF, se guardan cifrados y el tamaño sale de ellos.
       // Si no llegan (editar datos), las páginas del documento no se tocan.
       if (existente != null) {
-        await context.repo.actualizarDocumento(existente.id, datos, paginas: widget.fotos, pdf: pdf?.bytes);
+        await repo.actualizarDocumento(existente.id, datos, paginas: widget.fotos, pdf: pdf?.bytes);
         id = existente.id;
       } else {
-        id = await context.repo.guardarDocumento(datos, paginas: widget.fotos, pdf: pdf?.bytes);
+        id = await repo.guardarDocumento(datos, paginas: widget.fotos, pdf: pdf?.bytes);
       }
     } catch (e) {
       if (mounted) setState(() => _guardando = false);
       messenger.showSnackBar(const SnackBar(content: Text('No se pudo guardar. Inténtalo de nuevo.')));
       rethrow;
+    }
+    // Se guardó antes de que terminara la lectura: el texto llega después.
+    if (_lectura == null && _leyendo != null) {
+      unawaited(
+        _leyendo!.then((l) async {
+          if (l != null && l.conTexto) await repo.guardarTexto(id, l.texto);
+        }),
+      );
     }
     // Si la persona salió mientras se guardaba, espera a que abra con su
     // llave: si no, el cambio de pantalla quitaría la pantalla de la llave.
@@ -274,6 +415,71 @@ class _GuardarScreenState extends State<GuardarScreen> {
     return ('Ponle un nombre', 'Así lo encuentras rápido cuando lo busques.');
   }
 
+  /// El recuadro de arriba: cómo va la lectura del documento o, si no se
+  /// lee, de dónde viene.
+  Widget _avisoDeArriba() {
+    final lectura = _lectura;
+    if (_estadoLectura == _Lectura.leyendo) {
+      final avance = _avance;
+      return _Recuadro(
+        key: const ValueKey('leyendo'),
+        icono: const SizedBox.square(
+          dimension: 22,
+          child: CircularProgressIndicator(strokeWidth: 2.5, color: AppColors.primario),
+        ),
+        titulo: 'Leyendo tu documento…',
+        texto: avance != null && avance.$2 > 1
+            ? 'Página ${avance.$1 + 1} de ${avance.$2}. Mientras tanto, puedes ir llenando los datos.'
+            : 'La IA está leyendo el texto del papel. Mientras tanto, puedes ir llenando los datos.',
+      );
+    }
+    if (_estadoLectura == _Lectura.lista && lectura != null) {
+      final ver = lectura.conTexto ? _verLoQueLeyo : null;
+      if (_leidos.isNotEmpty) {
+        final reemplaza = _modo == _Modo.reemplazar;
+        return _Recuadro(
+          key: const ValueKey('leido'),
+          ia: true,
+          titulo: reemplaza ? 'La IA leyó las páginas nuevas' : 'La IA leyó tu documento',
+          texto: reemplaza
+              ? 'Encontró la fecha de vencimiento: ${Formato.fechaLarga(lectura.datos.venceEn!)}. Revisa que esté bien.'
+              : 'Llenó ${_enLista([for (final c in _leidos) c.comoTexto])}. Revisa que esté bien antes de guardar.',
+          onVer: ver,
+        );
+      }
+      if (_modo == _Modo.nuevo) {
+        return lectura.conTexto
+            ? _Recuadro(
+                key: const ValueKey('sin-datos'),
+                ia: true,
+                titulo: 'Leímos tu documento',
+                texto: 'No reconocimos qué documento es: elige tú los datos. Vas a poder buscarlo por lo que dice.',
+                onVer: ver,
+              )
+            : const _Recuadro(
+                key: ValueKey('sin-texto'),
+                titulo: 'No encontramos letras',
+                texto: 'Si es una foto, prueba con buena luz y sin reflejos. Igual puedes guardarlo.',
+              );
+      }
+    }
+    final (titulo, texto) = _aviso;
+    return _Recuadro(
+      key: const ValueKey('aviso'),
+      icono: TcIcon(
+        _modo == _Modo.reemplazar ? AppIcons.reemplazar : AppIcons.lapiz,
+        size: 22,
+        color: AppColors.primario,
+      ),
+      titulo: titulo,
+      texto: texto,
+    );
+  }
+
+  /// "el nombre, el tipo y la fecha de vencimiento".
+  static String _enLista(List<String> cosas) =>
+      cosas.length == 1 ? cosas.first : '${cosas.sublist(0, cosas.length - 1).join(', ')} y ${cosas.last}';
+
   /// Vuelve a la cámara o a las páginas de la galería sin perder las fotos
   /// que ya hay. Al reemplazar no aplica: las páginas ya se revisaron.
   VoidCallback? get _otraPagina {
@@ -310,42 +516,18 @@ class _GuardarScreenState extends State<GuardarScreen> {
                     else if (_modo != _Modo.editar)
                       _Paginas(paginas: widget.paginas, fotos: widget.fotos, onOtra: _otraPagina),
                     if (_modo != _Modo.editar) const SizedBox(height: 18),
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: AppColors.primarioSuave,
-                        borderRadius: BorderRadius.circular(AppDecor.radioTarjeta),
-                      ),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.only(top: 1),
-                            child: TcIcon(
-                              _modo == _Modo.reemplazar ? AppIcons.reemplazar : AppIcons.lapiz,
-                              size: 22,
-                              color: AppColors.primario,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              spacing: 2,
-                              children: [
-                                Text(_aviso.$1, style: AppText.bold(16, color: AppColors.primario)),
-                                Text(
-                                  _aviso.$2,
-                                  style: AppText.body(14, color: AppColors.primarioTextoSuave, height: 1.4),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
+                    AnimatedSize(
+                      duration: const Duration(milliseconds: 220),
+                      curve: Curves.easeOut,
+                      alignment: Alignment.topCenter,
+                      child: _avisoDeArriba(),
                     ),
                     const SizedBox(height: 18),
-                    TcTextField(label: 'Nombre del documento', controller: _nombre),
+                    TcTextField(
+                      label: 'Nombre del documento',
+                      controller: _nombre,
+                      marca: _llenados.contains(_Campo.nombre) ? const _MarcaLeido() : null,
+                    ),
                     const SizedBox(height: 18),
                     Text('¿De quién es?', style: AppText.bold(16)),
                     const SizedBox(height: 10),
@@ -365,13 +547,19 @@ class _GuardarScreenState extends State<GuardarScreen> {
                       ),
                     ),
                     const SizedBox(height: 18),
-                    Text('¿Qué tipo de documento es?', style: AppText.bold(16)),
+                    Row(
+                      children: [
+                        Expanded(child: Text('¿Qué tipo de documento es?', style: AppText.bold(16))),
+                        if (_llenados.contains(_Campo.tipo)) const _MarcaLeido(),
+                      ],
+                    ),
                     const SizedBox(height: 10),
                     Wrap(
                       spacing: 8,
                       runSpacing: 8,
                       children: [
-                        // Al reemplazar, también la que ya tenía aunque no se ofrezca al guardar.
+                        // Al reemplazar (o si la lectura lo reconoció), también la que ya
+                        // tiene aunque no se ofrezca al guardar.
                         for (final c in [
                           ...Categoria.alGuardar,
                           if (!Categoria.alGuardar.contains(_categoria)) _categoria,
@@ -379,7 +567,10 @@ class _GuardarScreenState extends State<GuardarScreen> {
                           PillChip(
                             label: c.etiqueta,
                             selected: c == _categoria,
-                            onTap: () => setState(() => _categoria = c),
+                            onTap: () => setState(() {
+                              _categoria = c;
+                              _tocar(_Campo.tipo);
+                            }),
                           ),
                       ],
                     ),
@@ -387,7 +578,11 @@ class _GuardarScreenState extends State<GuardarScreen> {
                     _Vencimiento(
                       activo: _seVence,
                       fecha: _fechaTexto,
-                      onToggle: () => setState(() => _seVence = !_seVence),
+                      leida: _llenados.contains(_Campo.fecha),
+                      onToggle: () => setState(() {
+                        _seVence = !_seVence;
+                        _tocar(_Campo.fecha);
+                      }),
                       onFecha: _elegirFecha,
                     ),
                   ],
@@ -411,6 +606,116 @@ class _GuardarScreenState extends State<GuardarScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// El recuadro de arriba. Con [ia], en amarillo: lo que hizo la lectura.
+class _Recuadro extends StatelessWidget {
+  const _Recuadro({
+    super.key,
+    required this.titulo,
+    required this.texto,
+    this.icono,
+    this.ia = false,
+    this.onVer,
+  });
+
+  final String titulo;
+  final String texto;
+
+  /// Sin él: el destello de la IA (con [ia]) o el lápiz.
+  final Widget? icono;
+  final bool ia;
+
+  /// "Ver lo que leyó"; sin él, no se ofrece.
+  final VoidCallback? onVer;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = ia ? AppColors.ambar : AppColors.primario;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: ia ? AppColors.ambarSuave : AppColors.primarioSuave,
+        borderRadius: BorderRadius.circular(AppDecor.radioTarjeta),
+        border: ia ? Border.all(color: AppColors.ambarBorde) : null,
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 1),
+            child:
+                icono ??
+                (ia
+                    ? Container(
+                        width: 34,
+                        height: 34,
+                        decoration: BoxDecoration(
+                          color: AppColors.amarillo,
+                          borderRadius: BorderRadius.circular(11),
+                        ),
+                        alignment: Alignment.center,
+                        child: const TcIcon(AppIcons.destelloSolo, size: 19, color: AppColors.ambar),
+                      )
+                    : const TcIcon(AppIcons.lapiz, size: 22, color: AppColors.primario)),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              spacing: 2,
+              children: [
+                Text(titulo, style: AppText.bold(16, color: color)),
+                Text(
+                  texto,
+                  style: AppText.body(
+                    14,
+                    color: ia ? AppColors.ambar : AppColors.primarioTextoSuave,
+                    height: 1.4,
+                  ),
+                ),
+                if (onVer case final onVer?)
+                  TcTap(
+                    onTap: onVer,
+                    minHeight: 40,
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      spacing: 4,
+                      children: [
+                        Text('Ver lo que leyó', style: AppText.bold(14, color: color)),
+                        TcIcon(AppIcons.siguiente, size: 16, color: color),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// "Lo leyó la IA", junto a cada dato que llenó la lectura.
+class _MarcaLeido extends StatelessWidget {
+  const _MarcaLeido();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+      decoration: BoxDecoration(color: AppColors.ambarSuave, borderRadius: BorderRadius.circular(10)),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        spacing: 4,
+        children: [
+          const TcIcon(AppIcons.destelloSolo, size: 14, color: AppColors.ambar),
+          Text('Lo leyó la IA', style: AppText.bold(12, color: AppColors.ambar)),
+        ],
       ),
     );
   }
@@ -549,12 +854,16 @@ class _Vencimiento extends StatelessWidget {
     required this.fecha,
     required this.onToggle,
     required this.onFecha,
+    this.leida = false,
   });
 
   final bool activo;
   final String fecha;
   final VoidCallback onToggle;
   final VoidCallback onFecha;
+
+  /// La fecha la llenó la lectura del documento.
+  final bool leida;
 
   @override
   Widget build(BuildContext context) {
@@ -598,7 +907,12 @@ class _Vencimiento extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       spacing: 8,
                       children: [
-                        Text('Fecha de vencimiento', style: AppText.bold(15)),
+                        Row(
+                          children: [
+                            Expanded(child: Text('Fecha de vencimiento', style: AppText.bold(15))),
+                            if (leida) const _MarcaLeido(),
+                          ],
+                        ),
                         TcTap(
                           onTap: onFecha,
                           color: AppColors.superficieSuave,

@@ -7,12 +7,15 @@ import 'core/avisos/recordatorios.dart';
 import 'core/archivos/recepcion.dart';
 import 'core/archivos/selector_archivos.dart';
 import 'core/compartir/compartidor.dart';
+import 'core/lectura/lector_de_texto.dart';
 import 'core/router/app_routes.dart';
 import 'core/seguridad/cerrojo.dart';
 import 'core/seguridad/llave_celular.dart';
 import 'core/theme/app_theme.dart';
 import 'data/copia/copia_de_seguridad.dart';
 import 'data/copia/programador_de_copias.dart';
+import 'data/lectura/lector_del_cajon.dart';
+import 'data/lectura/lectura_de_documentos.dart';
 import 'data/repositorio/cajon_repositorio.dart';
 import 'data/repositorio/repositorio_scope.dart';
 import 'features/avisos/avisos_programados.dart';
@@ -28,6 +31,7 @@ class TuCajonApp extends StatefulWidget {
     Buzon? buzon,
     Recordatorios? recordatorios,
     CopiaDeSeguridad? copia,
+    LectorDeTexto? lectorDeTexto,
     this.reloj,
     this.rutaInicial = AppRoutes.carga,
     this.argumentos,
@@ -36,7 +40,8 @@ class TuCajonApp extends StatefulWidget {
        selector = selector ?? SelectorArchivos.paraEstaPlataforma(),
        buzon = buzon ?? Buzon.paraEstaPlataforma(),
        recordatorios = recordatorios ?? Recordatorios.paraEstaPlataforma(),
-       copia = copia ?? CopiaDeSeguridad.simulada(repo);
+       copia = copia ?? CopiaDeSeguridad.simulada(repo),
+       lectorDeTexto = lectorDeTexto ?? LectorDeTexto.paraEstaPlataforma();
 
   final CajonRepositorio repo;
 
@@ -57,6 +62,9 @@ class TuCajonApp extends StatefulWidget {
 
   /// La copia de seguridad en la nube (simulada en pruebas).
   final CopiaDeSeguridad copia;
+
+  /// Lee el texto de los documentos, en el celular (simulado en pruebas).
+  final LectorDeTexto lectorDeTexto;
 
   /// Para pruebas: la hora que usa el cerrojo.
   final DateTime Function()? reloj;
@@ -91,6 +99,10 @@ class _TuCajonAppState extends State<TuCajonApp> {
   /// Hace la copia de seguridad sola cuando algo cambia.
   late final ProgramadorDeCopias _copias;
 
+  /// Lee los documentos (al guardarlos, y los que aún no tienen su texto).
+  late final LecturaDeDocumentos _lectura = LecturaDeDocumentos(lector: widget.lectorDeTexto);
+  late final LectorDelCajon _lectorDelCajon;
+
   @override
   void initState() {
     super.initState();
@@ -101,10 +113,12 @@ class _TuCajonAppState extends State<TuCajonApp> {
     widget.recordatorios.iniciar(_recepcion.abrirDocumento);
     _avisos = ProgramadorDeAvisos(repo: widget.repo, recordatorios: widget.recordatorios);
     _copias = ProgramadorDeCopias(copia: widget.copia, repo: widget.repo);
+    _lectorDelCajon = LectorDelCajon(repo: widget.repo, lectura: _lectura);
   }
 
   @override
   void dispose() {
+    _lectorDelCajon.dispose();
     _avisos.dispose();
     _copias.dispose();
     _recepcion.dispose();
@@ -130,23 +144,26 @@ class _TuCajonAppState extends State<TuCajonApp> {
                   recordatorios: widget.recordatorios,
                   child: CopiaScope(
                     copia: widget.copia,
-                    child: AnnotatedRegion<SystemUiOverlayStyle>(
-                      value: SystemUiOverlayStyle.dark.copyWith(statusBarColor: Colors.transparent),
-                      child: MaterialApp(
-                        navigatorKey: _navegador,
-                        navigatorObservers: [_recepcion.rutas],
-                        title: 'Tu Cajón',
-                        debugShowCheckedModeBanner: false,
-                        theme: AppTheme.light,
-                        locale: const Locale('es', 'CO'),
-                        supportedLocales: const [Locale('es', 'CO'), Locale('es')],
-                        localizationsDelegates: GlobalMaterialLocalizations.delegates,
-                        onGenerateInitialRoutes: (_) => [
-                          AppRoutes.onGenerateRoute(
-                            RouteSettings(name: widget.rutaInicial, arguments: widget.argumentos),
-                          ),
-                        ],
-                        onGenerateRoute: AppRoutes.onGenerateRoute,
+                    child: LecturaScope(
+                      lectura: _lectura,
+                      child: AnnotatedRegion<SystemUiOverlayStyle>(
+                        value: SystemUiOverlayStyle.dark.copyWith(statusBarColor: Colors.transparent),
+                        child: MaterialApp(
+                          navigatorKey: _navegador,
+                          navigatorObservers: [_recepcion.rutas],
+                          title: 'Tu Cajón',
+                          debugShowCheckedModeBanner: false,
+                          theme: AppTheme.light,
+                          locale: const Locale('es', 'CO'),
+                          supportedLocales: const [Locale('es', 'CO'), Locale('es')],
+                          localizationsDelegates: GlobalMaterialLocalizations.delegates,
+                          onGenerateInitialRoutes: (_) => [
+                            AppRoutes.onGenerateRoute(
+                              RouteSettings(name: widget.rutaInicial, arguments: widget.argumentos),
+                            ),
+                          ],
+                          onGenerateRoute: AppRoutes.onGenerateRoute,
+                        ),
                       ),
                     ),
                   ),

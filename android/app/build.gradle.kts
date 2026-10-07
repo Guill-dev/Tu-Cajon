@@ -55,5 +55,7 @@ dependencies {
     implementation("androidx.core:core:1.16.0")
     // Block Store: la llave de la copia de seguridad llega sola al celular nuevo (ver CopiaDeSeguridad.kt).
     implementation("com.google.android.gms:play-services-auth-blockstore:16.4.0")
+    // Lee el texto de los documentos con el modelo incluido en la app: sin internet (ver LectorDeTexto.kt).
+    implementation("com.google.mlkit:text-recognition:16.0.1")
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }

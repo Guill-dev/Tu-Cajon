@@ -61,9 +61,14 @@ void main() {
       const MethodChannel('flutter.baseflow.com/permissions/methods'),
       (_) async => throw MissingPluginException(),
     );
-    // Tampoco hay lector de PDF nativo ni buzón de "Compartir": responden
-    // "no implementado".
-    for (final canal in ['tu_cajon/pdf', 'tu_cajon/recibir', 'dexterous.com/flutter/local_notifications']) {
+    // Tampoco hay lector de PDF nativo, lector de texto ni buzón de "Compartir":
+    // responden "no implementado".
+    for (final canal in [
+      'tu_cajon/pdf',
+      'tu_cajon/leer',
+      'tu_cajon/recibir',
+      'dexterous.com/flutter/local_notifications',
+    ]) {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
         MethodChannel(canal),
         (_) async => throw MissingPluginException(),

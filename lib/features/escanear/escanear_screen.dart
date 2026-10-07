@@ -16,6 +16,7 @@ import '../../shared/widgets/buttons.dart';
 import '../../shared/widgets/common.dart';
 import '../../shared/widgets/tc_icon.dart';
 import '../../shared/widgets/tc_tap.dart';
+import 'bordes.dart';
 import 'pagina_editable.dart';
 import 'procesar_foto.dart';
 import 'recorte.dart';
@@ -100,6 +101,9 @@ class _EscanearScreenState extends State<EscanearScreen>
   /// El filtro que se le pone a las fotos nuevas: el último que se eligió
   /// al revisar una página.
   FiltroFoto _filtro = FiltroFoto.original;
+
+  /// Ya se avisó que los bordes se ajustan solos.
+  bool _avisoBordes = false;
   int _simuladas = 0;
   bool _flash = false;
 
@@ -251,6 +255,12 @@ class _EscanearScreenState extends State<EscanearScreen>
     final visor = _visorTam;
     final formato = _formato;
     final filtro = _filtro;
+    // Para enderezar: una tarjeta o una hoja tienen medidas conocidas.
+    final proporciones = switch (formato) {
+      FormatoFoto.cedula => proporcionesTarjeta,
+      FormatoFoto.hoja => proporcionesHoja,
+      _ => const <double>[],
+    };
     setState(() => _tomando = true);
     try {
       HapticFeedback.lightImpact();
@@ -277,19 +287,45 @@ class _EscanearScreenState extends State<EscanearScreen>
         );
       }
       PaginaEditable pagina;
+      var bordesAjustados = false;
       try {
+        // Se buscan los bordes del papel y se endereza (si no se encuentran,
+        // queda lo que estaba dentro del marco).
         final lista = await prepararPagina(
           bytes,
           recorte: recorte,
           proporcionCamara: proporcion,
           filtro: filtro,
+          proporciones: proporciones,
         );
-        pagina = PaginaEditable(base: lista.base, filtro: filtro, foto: lista.foto);
+        pagina = PaginaEditable(
+          base: lista.base,
+          filtro: filtro,
+          foto: lista.foto,
+          original: lista.original,
+          esquinas: lista.esquinas,
+          proporciones: proporciones,
+        );
+        bordesAjustados = lista.detectada;
       } catch (e) {
         debugPrint('No se pudo preparar la foto; se guarda tal cual: $e');
         pagina = PaginaEditable.sinFiltro(bytes);
       }
       if (mounted) setState(() => _fotos.add(pagina));
+      // La primera vez, se cuenta lo que pasó (y cómo cambiarlo).
+      if (mounted && bordesAjustados && !_avisoBordes) {
+        _avisoBordes = true;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Encontramos los bordes del papel y lo enderezamos. Toca la miniatura para ajustarlos.',
+            ),
+            behavior: SnackBarBehavior.floating,
+            margin: EdgeInsets.fromLTRB(20, 0, 20, 200),
+            duration: Duration(seconds: 4),
+          ),
+        );
+      }
     } on CameraException {
       if (mounted) {
         ScaffoldMessenger.of(context)
@@ -325,9 +361,9 @@ class _EscanearScreenState extends State<EscanearScreen>
     }
     if (!mounted || r == null || i >= _fotos.length) return;
     switch (r) {
-      case FotoConservada(:final base, :final filtro, :final foto, :final aTodas):
+      case FotoConservada(:final filtro, :final aTodas):
         setState(() {
-          _fotos[i] = PaginaEditable(base: base, filtro: filtro, foto: foto);
+          _fotos[i] = _fotos[i].conRevision(r);
           _filtro = filtro; // las fotos nuevas salen con el mismo filtro
         });
         if (aTodas) await _filtrarTodas(filtro, messenger);

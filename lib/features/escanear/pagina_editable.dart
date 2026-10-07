@@ -2,24 +2,61 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
+import 'bordes.dart';
 import 'filtros.dart';
 import 'revisar_foto.dart';
 
 /// Una página que todavía se puede editar (de la cámara o de la galería):
 /// la foto sin filtro ([base], ya recortada) y cómo quedó con su [filtro]
 /// ([foto], la que se guarda).
+///
+/// [original] es la foto de la que salió [base] y [esquinas] dónde está el
+/// papel en ella: así "Recortar" puede volver a mover los bordes (también
+/// hacia afuera) sin perder nada. Sin [original], la base es la original.
 class PaginaEditable {
-  const PaginaEditable({required this.base, required this.filtro, required this.foto});
+  const PaginaEditable({
+    required this.base,
+    required this.filtro,
+    required this.foto,
+    this.original,
+    this.esquinas = Esquinas.todo,
+    this.proporciones = const [],
+  });
 
   PaginaEditable.sinFiltro(Uint8List foto) : this(base: foto, filtro: FiltroFoto.original, foto: foto);
 
   final Uint8List base;
   final FiltroFoto filtro;
   final Uint8List foto;
+  final Uint8List? original;
+  final Esquinas esquinas;
+
+  /// Proporciones del papel que se esperaba (tarjeta, hoja), para enderezar.
+  final List<double> proporciones;
 
   /// La misma página con otro [filtro], partiendo siempre de la [base].
   Future<PaginaEditable> conFiltro(FiltroFoto filtro) async =>
-      PaginaEditable(base: base, filtro: filtro, foto: await aplicarFiltro(base, filtro));
+      conCambios(base: base, filtro: filtro, foto: await aplicarFiltro(base, filtro));
+
+  /// La misma página con otra base, filtro o recorte.
+  PaginaEditable conCambios({
+    required Uint8List base,
+    required FiltroFoto filtro,
+    required Uint8List foto,
+    Uint8List? original,
+    Esquinas? esquinas,
+  }) => PaginaEditable(
+    base: base,
+    filtro: filtro,
+    foto: foto,
+    original: original ?? this.original,
+    esquinas: esquinas ?? this.esquinas,
+    proporciones: proporciones,
+  );
+
+  /// Con lo que devolvió la revisión.
+  PaginaEditable conRevision(FotoConservada r) =>
+      conCambios(base: r.base, filtro: r.filtro, foto: r.foto, original: r.original, esquinas: r.esquinas);
 }
 
 /// Abre la página en grande para revisarla (filtro, recorte o eliminar).
@@ -37,6 +74,9 @@ Future<RevisionFoto?> abrirRevision(
         base: pagina.base,
         filtro: pagina.filtro,
         foto: pagina.foto,
+        original: pagina.original,
+        esquinas: pagina.esquinas,
+        proporciones: pagina.proporciones,
         numero: numero,
         total: total,
       ),

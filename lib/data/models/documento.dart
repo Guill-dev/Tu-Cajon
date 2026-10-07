@@ -109,6 +109,7 @@ class Documento {
     Categoria? categoria,
     DateTime? venceEn,
     bool quitarVencimiento = false,
+    String? textoExtraido,
   }) => Documento(
     id: id,
     perfilId: perfilId,
@@ -119,7 +120,7 @@ class Documento {
     tamanoBytes: tamanoBytes,
     venceEn: quitarVencimiento ? null : (venceEn ?? this.venceEn),
     archivo: archivo,
-    textoExtraido: textoExtraido,
+    textoExtraido: textoExtraido ?? this.textoExtraido,
   );
 }
 

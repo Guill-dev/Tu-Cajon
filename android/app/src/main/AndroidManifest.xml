@@ -19,6 +19,10 @@
     <!-- La galería y el explorador de archivos son los del sistema: entregan solo lo que
          la persona elige, sin permiso para leer todo el almacenamiento. -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" tools:node="remove" />
+    <!-- ML Kit (leer documentos) trae el permiso de internet solo para mandarle a Google
+         estadísticas de uso. La lectura no lo necesita (el modelo viene en la app) y Tu Cajón
+         no usa internet: se quita. Ojo: Google Drive sí lo necesitará. -->
+    <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
 
     <application
         android:label="Tu Cajón"
@@ -72,6 +76,11 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/archivos_compartidos" />
         </provider>
+        <!-- Sin destino para las estadísticas de uso de ML Kit: nunca intenta enviarlas
+             (ni siquiera cuando la app tenga internet para Google Drive). -->
+        <service
+            android:name="com.google.android.datatransport.runtime.backends.TransportBackendDiscovery"
+            tools:node="remove" />
         <!-- Muestran los avisos programados y los reprograman al reiniciar
              (flutter_local_notifications; ver lib/core/avisos/). -->
         <receiver android:exported="false" android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver" />

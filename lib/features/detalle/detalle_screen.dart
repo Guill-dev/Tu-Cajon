@@ -5,9 +5,12 @@ import '../../core/icons/app_icons.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_decor.dart';
 import '../../core/theme/app_text.dart';
+import '../../core/lectura/lector_de_texto.dart';
 import '../../core/pdf/lector_pdf.dart';
 import '../../core/router/app_routes.dart';
 import '../../core/seguridad/cerrojo.dart';
+import '../../data/lectura/interprete.dart';
+import '../../data/lectura/lectura_de_documentos.dart';
 import '../../data/repositorio/repositorio_scope.dart';
 import '../../data/models/documento.dart';
 import '../../shared/illustrations/cedula_dibujo.dart';
@@ -20,6 +23,7 @@ import '../../shared/widgets/toast.dart';
 import '../compartir/enviar_documento.dart';
 import '../guardar/guardar_screen.dart';
 import '../paginas/paginas_screen.dart';
+import '../texto/texto_leido_screen.dart';
 import 'visor_paginas.dart';
 
 /// 6 · Documento: vista previa, datos, acciones y "Enviar por WhatsApp".
@@ -207,6 +211,7 @@ class _DetalleScreenState extends State<DetalleScreen> with ToastMixin {
                             ('Vencimiento', d.vencimientoTexto),
                           ],
                         ),
+                        _LoQueDice(documento: d, avisar: showToast),
                       ],
                     ),
                   ),
@@ -462,6 +467,151 @@ class _Datos extends StatelessWidget {
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+/// "Lo que dice el documento": el número (para copiarlo), el comienzo del
+/// texto y "Ver todo el texto". Si el documento todavía no se ha leído (se
+/// guardó antes de que la app supiera leer), ofrece leerlo ya.
+class _LoQueDice extends StatefulWidget {
+  const _LoQueDice({required this.documento, required this.avisar});
+
+  final Documento documento;
+  final void Function(String) avisar;
+
+  @override
+  State<_LoQueDice> createState() => _LoQueDiceState();
+}
+
+class _LoQueDiceState extends State<_LoQueDice> {
+  bool _leyendo = false;
+
+  Future<void> _leerAhora() async {
+    if (_leyendo) return;
+    setState(() => _leyendo = true);
+    final repo = context.repo;
+    final lectura = context.lectura;
+    final d = widget.documento;
+    try {
+      final leido = await lectura.releer(repo, d);
+      if (leido.conTexto) {
+        await repo.guardarTexto(d.id, leido.texto);
+      } else {
+        widget.avisar('No encontramos letras en este documento.');
+      }
+    } on LecturaNoDisponible {
+      widget.avisar('Este celular no puede leer documentos.');
+    } catch (e) {
+      debugPrint('No se pudo leer el documento: $e');
+      widget.avisar('No se pudo leer el documento. Inténtalo de nuevo.');
+    } finally {
+      if (mounted) setState(() => _leyendo = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final d = widget.documento;
+    final texto = d.textoExtraido.trim();
+    if (texto.isEmpty) {
+      // Sin páginas guardadas (ejemplos) o sin lector (navegador): nada que ofrecer.
+      if (d.archivo == null || !context.lectura.disponible) return const SizedBox.shrink();
+      return _tarjeta(
+        children: [
+          Text(
+            'Todavía no se ha leído. Léelo para encontrarlo por lo que dice y preguntarle a tu cajón.',
+            style: AppText.secondary(15, height: 1.4),
+          ),
+          TcTap(
+            onTap: _leyendo ? null : _leerAhora,
+            color: AppColors.primarioSuave,
+            radius: 16,
+            height: 48,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              spacing: 8,
+              children: [
+                if (_leyendo)
+                  const SizedBox.square(
+                    dimension: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2.2, color: AppColors.primario),
+                  )
+                else
+                  const TcIcon(AppIcons.destelloSolo, size: 18, color: AppColors.primario),
+                Text(
+                  _leyendo ? 'Leyendo…' : 'Leer ahora',
+                  style: AppText.bold(15, color: AppColors.primario),
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+    }
+    final numero = Interprete.numero(texto);
+    final comienzo = texto.split(separadorDePaginas).first.replaceAll(RegExp(r'\s+'), ' ').trim();
+    return _tarjeta(
+      children: [
+        if (numero != null) FilaNumero(numero: numero, alCopiar: () => widget.avisar('Copiaste el número.')),
+        Text(
+          comienzo,
+          maxLines: 3,
+          overflow: TextOverflow.ellipsis,
+          style: AppText.secondary(15, height: 1.4),
+        ),
+        TcTap(
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => TextoLeidoScreen(texto: texto, numero: numero),
+            ),
+          ),
+          color: AppColors.primarioSuave,
+          radius: 16,
+          height: 48,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            spacing: 6,
+            children: [
+              Text('Ver todo el texto', style: AppText.bold(15, color: AppColors.primario)),
+              const TcIcon(AppIcons.siguiente, size: 16, color: AppColors.primario),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _tarjeta({required List<Widget> children}) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 14),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+        decoration: AppDecor.tarjeta(),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          spacing: 12,
+          children: [
+            Row(
+              spacing: 10,
+              children: [
+                Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: AppColors.amarillo,
+                    borderRadius: BorderRadius.circular(11),
+                  ),
+                  alignment: Alignment.center,
+                  child: const TcIcon(AppIcons.destelloSolo, size: 19, color: AppColors.ambar),
+                ),
+                Expanded(child: Text('Lo que dice el documento', style: AppText.bold(16))),
+              ],
+            ),
+            ...children,
+          ],
+        ),
       ),
     );
   }

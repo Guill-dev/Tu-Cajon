@@ -1,4 +1,5 @@
 import '../../core/formato.dart';
+import '../../data/lectura/interprete.dart';
 import '../../data/models/documento.dart';
 import '../../data/models/perfil.dart';
 import '../../data/repositorio/cajon_repositorio.dart';
@@ -105,7 +106,7 @@ class AsistenteLocal {
     }
 
     if (q.contains('numero') || q.contains('#')) {
-      final numero = _numeroEn(d.textoExtraido);
+      final numero = Interprete.numero(d.textoExtraido);
       if (numero != null) {
         return Mensaje.ia(
           'El número de “${d.nombre}” es $numero. Lo encontré en la carpeta ${d.categoria.etiqueta}.',
@@ -127,16 +128,6 @@ class AsistenteLocal {
   static const _noEncontrado = Mensaje.ia(
     'No encontré ese dato en tus documentos guardados. Prueba preguntando por tu pasaporte, tu licencia o tu cédula.',
   );
-
-  /// El primer "número" del texto: después de "Número", o una cifra larga.
-  static String? _numeroEn(String texto) {
-    final tras = RegExp(
-      r'(?:n[uú]mero|nit|no\.)\s*:?\s*([A-Z0-9][A-Z0-9.\- ]{4,}[0-9])',
-      caseSensitive: false,
-    ).firstMatch(texto);
-    if (tras != null) return tras.group(1)!.trim();
-    return RegExp(r'\b[0-9][0-9.\-]{5,}[0-9]\b').firstMatch(texto)?.group(0);
-  }
 
   static String _resumen(Documento d, DateTime hoy) {
     final e = d.etiqueta(hoy);

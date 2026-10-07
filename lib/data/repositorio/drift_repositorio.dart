@@ -219,7 +219,8 @@ class DriftCajonRepositorio implements CajonRepositorio {
           tamanoBytes: archivo == null ? const Value.absent() : Value(archivo.bytes),
           archivo: archivo == null ? const Value.absent() : Value(archivo.ruta),
           guardadoEn: archivo == null ? const Value.absent() : Value(DateTime.now()),
-          textoExtraido: archivo == null ? const Value.absent() : const Value(''),
+          // Las páginas nuevas traen su propio texto (o ninguno, si aún no se leyeron).
+          textoExtraido: archivo == null ? const Value.absent() : Value(n.textoExtraido),
         ),
       );
     } catch (_) {
@@ -229,6 +230,11 @@ class DriftCajonRepositorio implements CajonRepositorio {
     // Ya quedaron los nuevos: se borran las páginas de antes.
     if (archivo != null && anterior.archivo != null) await archivos.borrar(anterior.archivo!);
   }
+
+  @override
+  Future<void> guardarTexto(String id, String texto) => (db.update(
+    db.documentos,
+  )..where((d) => d.id.equals(id))).write(DocumentosCompanion(textoExtraido: Value(texto)));
 
   @override
   Future<void> renombrarDocumento(String id, String nombre) => (db.update(

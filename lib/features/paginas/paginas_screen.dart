@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -10,6 +11,7 @@ import '../../core/seguridad/cerrojo.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_decor.dart';
 import '../../core/theme/app_text.dart';
+import '../../data/lectura/lectura_de_documentos.dart';
 import '../../data/models/documento.dart';
 import '../../data/repositorio/repositorio_scope.dart';
 import '../../shared/widgets/buttons.dart';
@@ -124,10 +126,19 @@ class _PaginasScreenState extends State<PaginasScreen> {
     for (final foto in fotos) {
       try {
         final filtro = _filtroNuevas;
+        // Como en la cámara: si se ven los bordes del papel, se recorta y endereza.
         final lista = await prepararPagina(foto, filtro: filtro);
         if (!mounted) return;
         setState(() {
-          _paginas.add(PaginaEditable(base: lista.base, filtro: filtro, foto: lista.foto));
+          _paginas.add(
+            PaginaEditable(
+              base: lista.base,
+              filtro: filtro,
+              foto: lista.foto,
+              original: lista.original,
+              esquinas: lista.esquinas,
+            ),
+          );
           _cambios = true;
         });
       } catch (e) {
@@ -179,9 +190,9 @@ class _PaginasScreenState extends State<PaginasScreen> {
     final k = _paginas.indexOf(pagina);
     if (k < 0) return;
     switch (r) {
-      case FotoConservada(:final base, :final filtro, :final foto, :final aTodas):
+      case FotoConservada(:final filtro, :final foto, :final aTodas):
         setState(() {
-          _paginas[k] = PaginaEditable(base: base, filtro: filtro, foto: foto);
+          _paginas[k] = pagina.conRevision(r);
           if (!identical(foto, pagina.foto)) _cambios = true;
         });
         if (aTodas) await _filtrarTodas(filtro);
@@ -223,9 +234,11 @@ class _PaginasScreenState extends State<PaginasScreen> {
     final navigator = Navigator.of(context);
     final messenger = ScaffoldMessenger.of(context)..hideCurrentSnackBar();
     final cerrojo = context.cerrojo;
+    final repo = context.repo;
+    final lectura = context.lectura;
     final fotos = [for (final p in _paginas) p.foto];
     try {
-      await context.repo.actualizarDocumento(
+      await repo.actualizarDocumento(
         d.id,
         NuevoDocumento(
           perfilId: d.perfilId,
@@ -243,6 +256,8 @@ class _PaginasScreenState extends State<PaginasScreen> {
       );
       rethrow;
     }
+    // Las páginas cambiaron: su texto se vuelve a leer sin que haya que esperar.
+    unawaited(lectura.leerYGuardar(repo, d.id, fotos: fotos));
     // Si la persona salió mientras se guardaba, se vuelve cuando abra con su llave.
     await cerrojo.esperarAbierto();
     _cambios = false;
