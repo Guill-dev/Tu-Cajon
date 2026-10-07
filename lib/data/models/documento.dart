@@ -105,6 +105,7 @@ class Documento {
   }
 
   Documento copyWith({
+    String? perfilId,
     String? nombre,
     Categoria? categoria,
     DateTime? venceEn,
@@ -112,7 +113,7 @@ class Documento {
     String? textoExtraido,
   }) => Documento(
     id: id,
-    perfilId: perfilId,
+    perfilId: perfilId ?? this.perfilId,
     nombre: nombre ?? this.nombre,
     categoria: categoria ?? this.categoria,
     guardadoEn: guardadoEn,

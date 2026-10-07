@@ -182,6 +182,12 @@ class _InicioScreenState extends State<InicioScreen> with ToastMixin {
     required Set<String> descartadas,
   }) {
     final perfil = perfiles.firstWhere((p) => p.id == _perfilId, orElse: () => perfiles.first);
+    // El perfil que se veía ya no está (se eliminó): se vuelve al propio.
+    if (perfil.id != _perfilId) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _perfilId != perfil.id) _elegirPerfil(perfil);
+      });
+    }
     final docs = encontrados.where((d) => _categoria == null || d.categoria == _categoria).toList();
     final categoriasPresentes = Categoria.values.where((c) => todos.any((d) => d.categoria == c)).toList();
     final hoy = DateTime.now();
@@ -248,7 +254,13 @@ class _InicioScreenState extends State<InicioScreen> with ToastMixin {
                       const SizedBox(height: 26),
                       const _TituloSeccion('Perfiles'),
                       const SizedBox(height: 12),
-                      _FilaPerfiles(perfiles: perfiles, actual: perfil.id, onElegir: _elegirPerfil),
+                      _FilaPerfiles(
+                        perfiles: perfiles,
+                        actual: perfil.id,
+                        onElegir: _elegirPerfil,
+                        onEditar: (p) =>
+                            Navigator.of(context).pushNamed(AppRoutes.editarPerfil, arguments: p),
+                      ),
                       if (sugerencia != null) ...[
                         // La fila de perfiles ya deja 24 px abajo para su sombra.
                         const SizedBox(height: 2),
@@ -396,11 +408,19 @@ class _TituloSeccion extends StatelessWidget {
 }
 
 class _FilaPerfiles extends StatelessWidget {
-  const _FilaPerfiles({required this.perfiles, required this.actual, required this.onElegir});
+  const _FilaPerfiles({
+    required this.perfiles,
+    required this.actual,
+    required this.onElegir,
+    required this.onEditar,
+  });
 
   final List<Perfil> perfiles;
   final String actual;
   final ValueChanged<Perfil> onElegir;
+
+  /// Cambiar su foto o color, o eliminarlo (lápiz o mantener presionado).
+  final ValueChanged<Perfil> onEditar;
 
   @override
   Widget build(BuildContext context) {
@@ -421,6 +441,7 @@ class _FilaPerfiles extends StatelessWidget {
                 documentos: p.documentos,
                 seleccionado: p.id == actual,
                 onTap: () => onElegir(p),
+                onEditar: () => onEditar(p),
               ),
               const SizedBox(width: 12),
             ],

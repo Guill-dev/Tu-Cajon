@@ -22,6 +22,7 @@ import 'package:tu_cajon/data/models/perfil.dart';
 import 'package:tu_cajon/data/repositorio/memoria_repositorio.dart';
 import 'package:tu_cajon/features/cajon/cajon_shell.dart';
 import 'package:tu_cajon/features/cajon/widgets/barra_inferior.dart';
+import 'package:tu_cajon/features/inicio/widgets/avatar_perfil.dart';
 import 'package:tu_cajon/shared/widgets/buttons.dart';
 
 import 'foto_prueba.dart';
@@ -68,6 +69,7 @@ void main() {
     for (final canal in [
       'tu_cajon/pdf',
       'tu_cajon/leer',
+      'tu_cajon/fotos',
       'tu_cajon/recibir',
       'dexterous.com/flutter/local_notifications',
     ]) {
@@ -1693,6 +1695,142 @@ void main() {
       await tocar(tester, find.text('Volver'));
       expect(find.byType(CajonShell), findsOneWidget);
       expect(tester.takeException(), isNull);
+    });
+  });
+
+  group('Perfiles: editar, foto y eliminar', () {
+    Future<MemoriaCajonRepositorio> abrirInicio(WidgetTester tester, {SelectorSimulado? selector}) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final repo = MemoriaCajonRepositorio();
+      await tester.pumpWidget(
+        TuCajonApp(
+          repo: repo,
+          llave: LlaveSimulada(),
+          selector: selector ?? SelectorSimulado(),
+          rutaInicial: AppRoutes.cajon,
+          argumentos: CajonTab.inicio,
+        ),
+      );
+      await tester.pump(const Duration(seconds: 2));
+      return repo;
+    }
+
+    Future<void> tocar(WidgetTester tester, Finder f) async {
+      // Si está más abajo en la lista (todavía sin construir), se baja hasta verlo.
+      if (f.evaluate().isEmpty) {
+        await tester.scrollUntilVisible(f, 200, scrollable: find.byType(Scrollable).first);
+      }
+      await tester.ensureVisible(f);
+      await tester.pump();
+      await tester.tap(f);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+    }
+
+    Future<void> editarMama(WidgetTester tester) async {
+      await tocar(tester, find.bySemanticsLabel(RegExp('^Perfil Mamá')));
+      await tocar(tester, find.bySemanticsLabel('Editar el perfil Mamá'));
+      expect(find.text('Guardar cambios'), findsOneWidget);
+    }
+
+    testWidgets('Eliminar un perfil pide confirmar y pasa sus documentos a tu perfil', (tester) async {
+      final repo = await abrirInicio(tester);
+      await editarMama(tester);
+
+      await tocar(tester, find.text('Eliminar perfil'));
+      expect(find.text('¿Eliminar el perfil “Mamá”?'), findsOneWidget);
+      expect(find.textContaining('Tiene 4 documentos'), findsOneWidget);
+      // Cancelar no borra nada.
+      await tocar(tester, find.text('Cancelar').last);
+      expect((await repo.vigilarPerfiles().first).map((p) => p.nombre), ['Tú', 'Mamá']);
+
+      await tocar(tester, find.text('Eliminar perfil'));
+      await tocar(tester, find.text('Eliminar y pasar sus documentos a mi perfil'));
+      await tester.pump(const Duration(seconds: 1));
+      final perfiles = await repo.vigilarPerfiles().first;
+      expect(perfiles.map((p) => (p.nombre, p.documentos)), [('Tú', 12)]);
+      // De vuelta en Mi cajón, en tu perfil.
+      expect(find.text('Guardar cambios'), findsNothing);
+      expect(find.bySemanticsLabel(RegExp('^Perfil Mamá')), findsNothing);
+      expect(find.text('12 documentos en tu cajón'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('También se puede eliminar con sus documentos', (tester) async {
+      final repo = await abrirInicio(tester);
+      await editarMama(tester);
+      await tocar(tester, find.text('Eliminar perfil'));
+      await tocar(tester, find.text('Eliminar el perfil y sus 4 documentos'));
+      await tester.pump(const Duration(seconds: 1));
+      expect((await repo.vigilarPerfiles().first).map((p) => (p.nombre, p.documentos)), [('Tú', 8)]);
+      expect(await repo.vigilarTodos().first, hasLength(8));
+    });
+
+    testWidgets('Tu perfil no se puede eliminar: solo cambia su color o su foto', (tester) async {
+      final repo = await abrirInicio(tester);
+      await tocar(tester, find.bySemanticsLabel('Editar el perfil Tú'));
+      expect(find.text('Guardar cambios'), findsOneWidget);
+      expect(find.text('Eliminar perfil'), findsNothing);
+      expect(find.text('¿Cómo se llama?'), findsNothing);
+      await tocar(tester, find.bySemanticsLabel('Color Verde'));
+      await tocar(tester, find.text('Guardar cambios'));
+      final yo = (await repo.vigilarPerfiles().first).first;
+      expect((yo.nombre, yo.color.toARGB32()), ('Tú', 0xFF2E9468));
+    });
+
+    testWidgets('Una foto de la galería como foto del perfil (y un color la quita)', (tester) async {
+      final foto = Uint8List.fromList(img.encodeJpg(img.Image(width: 600, height: 400)));
+      final repo = await abrirInicio(tester, selector: SelectorSimulado(fotos: [foto]));
+      await editarMama(tester);
+
+      await tocar(tester, find.bySemanticsLabel('Elegir una foto de la galería'));
+      expect(find.text('Ajusta la foto'), findsOneWidget);
+      await esperarHasta(tester, () => find.text('Usar esta foto').evaluate().isNotEmpty);
+      await tester.tap(find.text('Usar esta foto'));
+      await esperarHasta(tester, () => find.text('Guardar cambios').evaluate().isNotEmpty);
+      await tester.pump(const Duration(milliseconds: 600));
+      expect(find.bySemanticsLabel('Cambiar la foto'), findsOneWidget);
+
+      await tocar(tester, find.text('Guardar cambios'));
+      var mama = (await repo.vigilarPerfiles().first).last;
+      final guardada = img.decodeJpg(mama.foto!)!;
+      // Cuadrada, del alto de la foto (lo que entra en el círculo).
+      expect((guardada.width, guardada.height), (400, 400));
+
+      // En Mi cajón la tarjeta de Mamá muestra la foto.
+      expect(
+        find.descendant(of: find.byType(TarjetaPerfil).last, matching: find.byType(Image)),
+        findsOneWidget,
+      );
+
+      // Elegir un color en vez de la foto la quita.
+      await tocar(tester, find.bySemanticsLabel('Editar el perfil Mamá'));
+      await tocar(tester, find.bySemanticsLabel('Color Morado'));
+      await tocar(tester, find.text('Guardar cambios'));
+      mama = (await repo.vigilarPerfiles().first).last;
+      expect(mama.foto, isNull);
+      expect(mama.color.toARGB32(), 0xFF8A5CD6);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('Un perfil nuevo puede tener foto desde el principio', (tester) async {
+      final foto = Uint8List.fromList(img.encodeJpg(img.Image(width: 300, height: 500)));
+      final repo = await abrirInicio(tester, selector: SelectorSimulado(fotos: [foto]));
+      await tocar(tester, find.bySemanticsLabel('Nuevo perfil'));
+      await tester.enterText(find.byType(TextField), 'Papá');
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tocar(tester, find.bySemanticsLabel('Elegir una foto de la galería'));
+      await esperarHasta(tester, () => find.text('Usar esta foto').evaluate().isNotEmpty);
+      await tester.tap(find.text('Usar esta foto'));
+      await esperarHasta(tester, () => find.text('Crear perfil').evaluate().isNotEmpty);
+      await tester.pump(const Duration(milliseconds: 600));
+      await tocar(tester, find.text('Crear perfil'));
+      final papa = (await repo.vigilarPerfiles().first).last;
+      expect(papa.nombre, 'Papá');
+      expect(img.decodeJpg(papa.foto!)!.width, 300);
     });
   });
 }

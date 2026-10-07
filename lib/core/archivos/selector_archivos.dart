@@ -25,6 +25,10 @@ abstract class SelectorArchivos {
   /// Una o varias fotos de la galería (vacío si se cancela).
   Future<List<Uint8List>> elegirFotos();
 
+  /// Una sola foto de la galería, no más grande que [lado] px (`null` si se
+  /// cancela). Para la foto de un perfil.
+  Future<Uint8List?> elegirUnaFoto({double lado = 1600});
+
   /// Un PDF (`null` si se cancela).
   Future<PdfElegido?> elegirPdf();
 }
@@ -35,6 +39,17 @@ class SelectorDelSistema implements SelectorArchivos {
     // Sin metadatos extra (ubicación, etc.): no los necesitamos.
     final fotos = await ImagePicker().pickMultiImage(requestFullMetadata: false);
     return [for (final f in fotos) await f.readAsBytes()];
+  }
+
+  @override
+  Future<Uint8List?> elegirUnaFoto({double lado = 1600}) async {
+    final foto = await ImagePicker().pickImage(
+      source: ImageSource.gallery,
+      maxWidth: lado,
+      maxHeight: lado,
+      requestFullMetadata: false,
+    );
+    return foto?.readAsBytes();
   }
 
   @override
@@ -60,6 +75,9 @@ class SelectorSimulado implements SelectorArchivos {
 
   @override
   Future<List<Uint8List>> elegirFotos() async => fotos;
+
+  @override
+  Future<Uint8List?> elegirUnaFoto({double lado = 1600}) async => fotos.firstOrNull;
 
   @override
   Future<PdfElegido?> elegirPdf() async => pdf;

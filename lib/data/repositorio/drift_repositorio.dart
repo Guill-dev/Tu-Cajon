@@ -67,7 +67,12 @@ class DriftCajonRepositorio implements CajonRepositorio {
   Stream<List<Perfil>> vigilarPerfiles() => _perfilesEnOrden().watch();
 
   @override
-  Future<Perfil> crearPerfil({required String nombre, required TipoPerfil tipo, required Color color}) async {
+  Future<Perfil> crearPerfil({
+    required String nombre,
+    required TipoPerfil tipo,
+    required Color color,
+    Uint8List? foto,
+  }) async {
     final limpio = nombre.trim();
     final perfil = Perfil(
       id: 'perfil-${DateTime.now().microsecondsSinceEpoch}',
@@ -75,6 +80,7 @@ class DriftCajonRepositorio implements CajonRepositorio {
       inicial: DatosEjemplo.inicialDe(limpio),
       color: color,
       tipo: tipo,
+      foto: foto,
     );
     await db
         .into(db.perfiles)
@@ -85,9 +91,53 @@ class DriftCajonRepositorio implements CajonRepositorio {
             inicial: perfil.inicial,
             color: color.toARGB32(),
             tipo: tipo,
+            foto: Value(foto),
           ),
         );
     return perfil;
+  }
+
+  @override
+  Future<void> editarPerfil(
+    String id, {
+    required String nombre,
+    required TipoPerfil tipo,
+    required Color color,
+    Uint8List? foto,
+  }) {
+    final limpio = nombre.trim();
+    final cambios = id == Perfil.idPropio
+        ? PerfilesCompanion(color: Value(color.toARGB32()), foto: Value(foto))
+        : PerfilesCompanion(
+            nombre: Value(limpio),
+            inicial: Value(DatosEjemplo.inicialDe(limpio)),
+            tipo: Value(tipo),
+            color: Value(color.toARGB32()),
+            foto: Value(foto),
+          );
+    return (db.update(db.perfiles)..where((p) => p.id.equals(id))).write(cambios);
+  }
+
+  @override
+  Future<void> eliminarPerfil(String id, {required bool conDocumentos}) async {
+    if (id == Perfil.idPropio) throw ArgumentError('El perfil propio no se puede eliminar.');
+    final aBorrar = <String>[];
+    await db.transaction(() async {
+      if (conDocumentos) {
+        final suyos = await (db.select(db.documentos)..where((d) => d.perfilId.equals(id))).get();
+        aBorrar.addAll(suyos.map((d) => d.archivo).nonNulls);
+        await (db.delete(db.documentos)..where((d) => d.perfilId.equals(id))).go();
+      } else {
+        await (db.update(db.documentos)..where((d) => d.perfilId.equals(id))).write(
+          const DocumentosCompanion(perfilId: Value(Perfil.idPropio)),
+        );
+      }
+      await (db.delete(db.perfiles)..where((p) => p.id.equals(id))).go();
+    });
+    // Ya no están en la base: se borran sus archivos cifrados.
+    for (final ruta in aBorrar) {
+      await archivos.borrar(ruta);
+    }
   }
 
   // ── Documentos ─────────────────────────────────────────────────────────
@@ -311,6 +361,7 @@ class DriftCajonRepositorio implements CajonRepositorio {
                   color: p.color.toARGB32(),
                   tipo: p.tipo,
                   esPropio: Value(p.esPropio),
+                  foto: Value(p.foto),
                 ),
               );
         }
@@ -381,6 +432,7 @@ class DriftCajonRepositorio implements CajonRepositorio {
     tipo: f.tipo,
     esPropio: f.esPropio,
     documentos: total,
+    foto: f.foto,
   );
 
   static Documento _aDocumento(DocumentoFila f) => Documento(

@@ -47,6 +47,56 @@ Future<bool> confirmarEliminar(BuildContext context, String nombre) async {
   return ok ?? false;
 }
 
+/// Qué pasa con los documentos de un perfil que se elimina.
+enum AlEliminarPerfil { pasarDocumentos, eliminarDocumentos }
+
+/// Pregunta otra vez antes de eliminar un perfil. Si tiene documentos, también
+/// qué hacer con ellos: pasarlos al perfil propio o eliminarlos. `null` si se
+/// cancela.
+Future<AlEliminarPerfil?> confirmarEliminarPerfil(
+  BuildContext context, {
+  required String nombre,
+  required int documentos,
+}) {
+  final cuantos = documentos == 1 ? '1 documento' : '$documentos documentos';
+  return showDialog<AlEliminarPerfil>(
+    context: context,
+    builder: (context) {
+      void elegir(AlEliminarPerfil? e) => Navigator.of(context).pop(e);
+      Widget ancho(Widget boton) => SizedBox(width: double.infinity, child: boton);
+      return DialogoTc(
+        titulo: '¿Eliminar el perfil “$nombre”?',
+        contenido: Text(
+          documentos == 0
+              ? 'No tiene documentos guardados. Esto no se puede deshacer.'
+              : 'Tiene $cuantos. Puedes pasarlos a tu perfil o eliminarlos también. Esto no se puede deshacer.',
+          style: AppText.secondary(15, height: 1.4),
+        ),
+        acciones: documentos == 0
+            ? [
+                SmallButton(label: 'Cancelar', filled: false, onTap: () => elegir(null)),
+                _BotonPeligro(etiqueta: 'Eliminar', onTap: () => elegir(AlEliminarPerfil.pasarDocumentos)),
+              ]
+            : [
+                ancho(
+                  SmallButton(
+                    label: 'Eliminar y pasar sus documentos a mi perfil',
+                    onTap: () => elegir(AlEliminarPerfil.pasarDocumentos),
+                  ),
+                ),
+                ancho(
+                  _BotonPeligro(
+                    etiqueta: 'Eliminar el perfil y sus $cuantos',
+                    onTap: () => elegir(AlEliminarPerfil.eliminarDocumentos),
+                  ),
+                ),
+                ancho(SmallButton(label: 'Cancelar', filled: false, onTap: () => elegir(null))),
+              ],
+      );
+    },
+  );
+}
+
 /// Salir con cambios sin guardar. Devuelve `true` si el usuario quiere salir.
 Future<bool> confirmarSalirSinGuardar(BuildContext context) async {
   final ok = await showDialog<bool>(

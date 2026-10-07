@@ -14,6 +14,9 @@ const _ancho = 112.0;
 
 /// Tarjeta de perfil (como "Popular category" en la referencia): la
 /// seleccionada va rellena del color del perfil; las demás, blancas.
+///
+/// La seleccionada lleva un lápiz para editar el perfil ([onEditar]); en
+/// cualquiera, dejarla presionada también lo abre.
 class TarjetaPerfil extends StatelessWidget {
   const TarjetaPerfil({
     super.key,
@@ -21,24 +24,28 @@ class TarjetaPerfil extends StatelessWidget {
     required this.documentos,
     required this.seleccionado,
     required this.onTap,
+    this.onEditar,
   });
 
   final Perfil perfil;
   final int documentos;
   final bool seleccionado;
   final VoidCallback onTap;
+  final VoidCallback? onEditar;
 
   @override
   Widget build(BuildContext context) {
     final fg = seleccionado ? Colors.white : AppColors.texto;
     final sub = seleccionado ? Colors.white.withValues(alpha: 0.85) : AppColors.textoSecundario;
-    return Semantics(
+    final tarjeta = Semantics(
       button: true,
       selected: seleccionado,
       label: 'Perfil ${perfil.nombre}, $documentos documentos',
       excludeSemantics: true,
+      onLongPress: onEditar,
       child: GestureDetector(
         onTap: onTap,
+        onLongPress: onEditar,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 220),
           curve: Curves.easeOut,
@@ -72,14 +79,48 @@ class TarjetaPerfil extends StatelessWidget {
         ),
       ),
     );
+    if (!seleccionado || onEditar == null) return tarjeta;
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        tarjeta,
+        Positioned(
+          top: 6,
+          right: 6,
+          child: Semantics(
+            button: true,
+            label: 'Editar el perfil ${perfil.nombre}',
+            excludeSemantics: true,
+            child: GestureDetector(
+              onTap: onEditar,
+              behavior: HitTestBehavior.opaque,
+              child: Padding(
+                padding: const EdgeInsets.all(4),
+                child: Container(
+                  width: 28,
+                  height: 28,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.24),
+                    shape: BoxShape.circle,
+                  ),
+                  alignment: Alignment.center,
+                  child: const TcIcon(AppIcons.lapiz, size: 15, color: Colors.white, strokeWidth: 2.2),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
   }
 }
 
 /// Círculo del perfil con su inicial (o una huellita si es mascota).
 ///
-/// Sobre fondo blanco usa un tono suave del color del perfil; con
-/// [sobreColor] (tarjeta seleccionada) usa blanco translúcido. [relleno]
-/// pinta el círculo con el color pleno (vista previa al crear un perfil).
+/// Si el perfil tiene foto, la foto. Si no: sobre fondo blanco usa un tono
+/// suave del color del perfil; con [sobreColor] (tarjeta seleccionada) usa
+/// blanco translúcido. [relleno] pinta el círculo con el color pleno (vista
+/// previa al crear un perfil).
 class CirculoPerfil extends StatelessWidget {
   const CirculoPerfil({
     super.key,
@@ -109,6 +150,23 @@ class CirculoPerfil extends StatelessWidget {
     } else {
       fondo = perfil.color.withValues(alpha: 0.14);
       fg = perfil.color;
+    }
+    final foto = perfil.foto;
+    if (foto != null) {
+      // La foto llena el círculo entero, también sobre la tarjeta de color.
+      return ClipOval(
+        child: SizedBox.square(
+          dimension: size,
+          // cacheWidth: se decodifica del tamaño en que se ve, no la foto entera.
+          child: Image.memory(
+            foto,
+            fit: BoxFit.cover,
+            cacheWidth: (size * MediaQuery.devicePixelRatioOf(context)).round(),
+            gaplessPlayback: true,
+            excludeFromSemantics: true,
+          ),
+        ),
+      );
     }
     return AnimatedContainer(
       duration: const Duration(milliseconds: 180),

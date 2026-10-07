@@ -27,7 +27,28 @@ abstract interface class CajonRepositorio {
 
   /// Perfiles en orden (el propio primero), con su cantidad de documentos.
   Stream<List<Perfil>> vigilarPerfiles();
-  Future<Perfil> crearPerfil({required String nombre, required TipoPerfil tipo, required Color color});
+  Future<Perfil> crearPerfil({
+    required String nombre,
+    required TipoPerfil tipo,
+    required Color color,
+    Uint8List? foto,
+  });
+
+  /// Cambia el nombre, el tipo, el color y la foto ([foto] `null`: sin foto)
+  /// del perfil [id]. Del perfil propio solo cambian el color y la foto: su
+  /// nombre es "Tú" y su inicial sale del nombre del dueño.
+  Future<void> editarPerfil(
+    String id, {
+    required String nombre,
+    required TipoPerfil tipo,
+    required Color color,
+    Uint8List? foto,
+  });
+
+  /// Elimina el perfil [id] (el propio no se puede). Sus documentos pasan al
+  /// perfil propio o, con [conDocumentos], se eliminan también (con sus
+  /// archivos cifrados).
+  Future<void> eliminarPerfil(String id, {required bool conDocumentos});
 
   // ── Documentos ─────────────────────────────────────────────────────────
 

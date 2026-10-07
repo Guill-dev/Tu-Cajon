@@ -73,8 +73,17 @@ class $PerfilesTable extends Perfiles with TableInfo<$PerfilesTable, PerfilFila>
     requiredDuringInsert: false,
     defaultValue: currentDateAndTime,
   );
+  static const VerificationMeta _fotoMeta = const VerificationMeta('foto');
   @override
-  List<GeneratedColumn> get $columns => [id, nombre, inicial, color, tipo, esPropio, creadoEn];
+  late final GeneratedColumn<Uint8List> foto = GeneratedColumn<Uint8List>(
+    'foto',
+    aliasedName,
+    true,
+    type: DriftSqlType.blob,
+    requiredDuringInsert: false,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [id, nombre, inicial, color, tipo, esPropio, creadoEn, foto];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -110,6 +119,9 @@ class $PerfilesTable extends Perfiles with TableInfo<$PerfilesTable, PerfilFila>
     if (data.containsKey('creado_en')) {
       context.handle(_creadoEnMeta, creadoEn.isAcceptableOrUnknown(data['creado_en']!, _creadoEnMeta));
     }
+    if (data.containsKey('foto')) {
+      context.handle(_fotoMeta, foto.isAcceptableOrUnknown(data['foto']!, _fotoMeta));
+    }
     return context;
   }
 
@@ -131,6 +143,7 @@ class $PerfilesTable extends Perfiles with TableInfo<$PerfilesTable, PerfilFila>
         DriftSqlType.dateTime,
         data['${effectivePrefix}creado_en'],
       )!,
+      foto: attachedDatabase.typeMapping.read(DriftSqlType.blob, data['${effectivePrefix}foto']),
     );
   }
 
@@ -154,6 +167,9 @@ class PerfilFila extends DataClass implements Insertable<PerfilFila> {
   final TipoPerfil tipo;
   final bool esPropio;
   final DateTime creadoEn;
+
+  /// Foto del perfil (JPEG cuadrado de 512 px); sin foto, la inicial sobre su color.
+  final Uint8List? foto;
   const PerfilFila({
     required this.id,
     required this.nombre,
@@ -162,6 +178,7 @@ class PerfilFila extends DataClass implements Insertable<PerfilFila> {
     required this.tipo,
     required this.esPropio,
     required this.creadoEn,
+    this.foto,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -175,6 +192,9 @@ class PerfilFila extends DataClass implements Insertable<PerfilFila> {
     }
     map['es_propio'] = Variable<bool>(esPropio);
     map['creado_en'] = Variable<DateTime>(creadoEn);
+    if (!nullToAbsent || foto != null) {
+      map['foto'] = Variable<Uint8List>(foto);
+    }
     return map;
   }
 
@@ -187,6 +207,7 @@ class PerfilFila extends DataClass implements Insertable<PerfilFila> {
       tipo: Value(tipo),
       esPropio: Value(esPropio),
       creadoEn: Value(creadoEn),
+      foto: foto == null && nullToAbsent ? const Value.absent() : Value(foto),
     );
   }
 
@@ -200,6 +221,7 @@ class PerfilFila extends DataClass implements Insertable<PerfilFila> {
       tipo: $PerfilesTable.$convertertipo.fromJson(serializer.fromJson<String>(json['tipo'])),
       esPropio: serializer.fromJson<bool>(json['esPropio']),
       creadoEn: serializer.fromJson<DateTime>(json['creadoEn']),
+      foto: serializer.fromJson<Uint8List?>(json['foto']),
     );
   }
   @override
@@ -213,6 +235,7 @@ class PerfilFila extends DataClass implements Insertable<PerfilFila> {
       'tipo': serializer.toJson<String>($PerfilesTable.$convertertipo.toJson(tipo)),
       'esPropio': serializer.toJson<bool>(esPropio),
       'creadoEn': serializer.toJson<DateTime>(creadoEn),
+      'foto': serializer.toJson<Uint8List?>(foto),
     };
   }
 
@@ -224,6 +247,7 @@ class PerfilFila extends DataClass implements Insertable<PerfilFila> {
     TipoPerfil? tipo,
     bool? esPropio,
     DateTime? creadoEn,
+    Value<Uint8List?> foto = const Value.absent(),
   }) => PerfilFila(
     id: id ?? this.id,
     nombre: nombre ?? this.nombre,
@@ -232,6 +256,7 @@ class PerfilFila extends DataClass implements Insertable<PerfilFila> {
     tipo: tipo ?? this.tipo,
     esPropio: esPropio ?? this.esPropio,
     creadoEn: creadoEn ?? this.creadoEn,
+    foto: foto.present ? foto.value : this.foto,
   );
   PerfilFila copyWithCompanion(PerfilesCompanion data) {
     return PerfilFila(
@@ -242,6 +267,7 @@ class PerfilFila extends DataClass implements Insertable<PerfilFila> {
       tipo: data.tipo.present ? data.tipo.value : this.tipo,
       esPropio: data.esPropio.present ? data.esPropio.value : this.esPropio,
       creadoEn: data.creadoEn.present ? data.creadoEn.value : this.creadoEn,
+      foto: data.foto.present ? data.foto.value : this.foto,
     );
   }
 
@@ -254,13 +280,15 @@ class PerfilFila extends DataClass implements Insertable<PerfilFila> {
           ..write('color: $color, ')
           ..write('tipo: $tipo, ')
           ..write('esPropio: $esPropio, ')
-          ..write('creadoEn: $creadoEn')
+          ..write('creadoEn: $creadoEn, ')
+          ..write('foto: $foto')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(id, nombre, inicial, color, tipo, esPropio, creadoEn);
+  int get hashCode =>
+      Object.hash(id, nombre, inicial, color, tipo, esPropio, creadoEn, $driftBlobEquality.hash(foto));
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -271,7 +299,8 @@ class PerfilFila extends DataClass implements Insertable<PerfilFila> {
           other.color == this.color &&
           other.tipo == this.tipo &&
           other.esPropio == this.esPropio &&
-          other.creadoEn == this.creadoEn);
+          other.creadoEn == this.creadoEn &&
+          $driftBlobEquality.equals(other.foto, this.foto));
 }
 
 class PerfilesCompanion extends UpdateCompanion<PerfilFila> {
@@ -282,6 +311,7 @@ class PerfilesCompanion extends UpdateCompanion<PerfilFila> {
   final Value<TipoPerfil> tipo;
   final Value<bool> esPropio;
   final Value<DateTime> creadoEn;
+  final Value<Uint8List?> foto;
   final Value<int> rowid;
   const PerfilesCompanion({
     this.id = const Value.absent(),
@@ -291,6 +321,7 @@ class PerfilesCompanion extends UpdateCompanion<PerfilFila> {
     this.tipo = const Value.absent(),
     this.esPropio = const Value.absent(),
     this.creadoEn = const Value.absent(),
+    this.foto = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   PerfilesCompanion.insert({
@@ -301,6 +332,7 @@ class PerfilesCompanion extends UpdateCompanion<PerfilFila> {
     required TipoPerfil tipo,
     this.esPropio = const Value.absent(),
     this.creadoEn = const Value.absent(),
+    this.foto = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        nombre = Value(nombre),
@@ -315,6 +347,7 @@ class PerfilesCompanion extends UpdateCompanion<PerfilFila> {
     Expression<String>? tipo,
     Expression<bool>? esPropio,
     Expression<DateTime>? creadoEn,
+    Expression<Uint8List>? foto,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -325,6 +358,7 @@ class PerfilesCompanion extends UpdateCompanion<PerfilFila> {
       if (tipo != null) 'tipo': tipo,
       if (esPropio != null) 'es_propio': esPropio,
       if (creadoEn != null) 'creado_en': creadoEn,
+      if (foto != null) 'foto': foto,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -337,6 +371,7 @@ class PerfilesCompanion extends UpdateCompanion<PerfilFila> {
     Value<TipoPerfil>? tipo,
     Value<bool>? esPropio,
     Value<DateTime>? creadoEn,
+    Value<Uint8List?>? foto,
     Value<int>? rowid,
   }) {
     return PerfilesCompanion(
@@ -347,6 +382,7 @@ class PerfilesCompanion extends UpdateCompanion<PerfilFila> {
       tipo: tipo ?? this.tipo,
       esPropio: esPropio ?? this.esPropio,
       creadoEn: creadoEn ?? this.creadoEn,
+      foto: foto ?? this.foto,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -375,6 +411,9 @@ class PerfilesCompanion extends UpdateCompanion<PerfilFila> {
     if (creadoEn.present) {
       map['creado_en'] = Variable<DateTime>(creadoEn.value);
     }
+    if (foto.present) {
+      map['foto'] = Variable<Uint8List>(foto.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -391,6 +430,7 @@ class PerfilesCompanion extends UpdateCompanion<PerfilFila> {
           ..write('tipo: $tipo, ')
           ..write('esPropio: $esPropio, ')
           ..write('creadoEn: $creadoEn, ')
+          ..write('foto: $foto, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -1349,6 +1389,7 @@ typedef $$PerfilesTableCreateCompanionBuilder = PerfilesCompanion Function({
   required TipoPerfil tipo,
   Value<bool> esPropio,
   Value<DateTime> creadoEn,
+  Value<Uint8List?> foto,
   Value<int> rowid,
 });
 typedef $$PerfilesTableUpdateCompanionBuilder = PerfilesCompanion Function({
@@ -1359,6 +1400,7 @@ typedef $$PerfilesTableUpdateCompanionBuilder = PerfilesCompanion Function({
   Value<TipoPerfil> tipo,
   Value<bool> esPropio,
   Value<DateTime> creadoEn,
+  Value<Uint8List?> foto,
   Value<int> rowid,
 });
 
@@ -1408,6 +1450,9 @@ class $$PerfilesTableFilterComposer extends Composer<_$BaseDatos, $PerfilesTable
   ColumnFilters<DateTime> get creadoEn =>
       $composableBuilder(column: $table.creadoEn, builder: (column) => ColumnFilters(column));
 
+  ColumnFilters<Uint8List> get foto =>
+      $composableBuilder(column: $table.foto, builder: (column) => ColumnFilters(column));
+
   Expression<bool> documentosRefs(Expression<bool> Function($$DocumentosTableFilterComposer f) f) {
     final $$DocumentosTableFilterComposer composer = $composerBuilder(
       composer: this,
@@ -1455,6 +1500,9 @@ class $$PerfilesTableOrderingComposer extends Composer<_$BaseDatos, $PerfilesTab
 
   ColumnOrderings<DateTime> get creadoEn =>
       $composableBuilder(column: $table.creadoEn, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<Uint8List> get foto =>
+      $composableBuilder(column: $table.foto, builder: (column) => ColumnOrderings(column));
 }
 
 class $$PerfilesTableAnnotationComposer extends Composer<_$BaseDatos, $PerfilesTable> {
@@ -1483,6 +1531,8 @@ class $$PerfilesTableAnnotationComposer extends Composer<_$BaseDatos, $PerfilesT
 
   GeneratedColumn<DateTime> get creadoEn =>
       $composableBuilder(column: $table.creadoEn, builder: (column) => column);
+
+  GeneratedColumn<Uint8List> get foto => $composableBuilder(column: $table.foto, builder: (column) => column);
 
   Expression<T> documentosRefs<T extends Object>(
     Expression<T> Function($$DocumentosTableAnnotationComposer a) f,
@@ -1537,6 +1587,7 @@ class $$PerfilesTableTableManager
                 Value<TipoPerfil> tipo = const Value.absent(),
                 Value<bool> esPropio = const Value.absent(),
                 Value<DateTime> creadoEn = const Value.absent(),
+                Value<Uint8List?> foto = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => PerfilesCompanion(
                 id: id,
@@ -1546,6 +1597,7 @@ class $$PerfilesTableTableManager
                 tipo: tipo,
                 esPropio: esPropio,
                 creadoEn: creadoEn,
+                foto: foto,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -1557,6 +1609,7 @@ class $$PerfilesTableTableManager
                 required TipoPerfil tipo,
                 Value<bool> esPropio = const Value.absent(),
                 Value<DateTime> creadoEn = const Value.absent(),
+                Value<Uint8List?> foto = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => PerfilesCompanion.insert(
                 id: id,
@@ -1566,6 +1619,7 @@ class $$PerfilesTableTableManager
                 tipo: tipo,
                 esPropio: esPropio,
                 creadoEn: creadoEn,
+                foto: foto,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0

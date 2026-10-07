@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'dart:ui';
 
 enum TipoPerfil { persona, mascota }
@@ -12,6 +13,7 @@ class Perfil {
     this.tipo = TipoPerfil.persona,
     this.esPropio = false,
     this.documentos = 0,
+    this.foto,
   });
 
   /// Id fijo del perfil del dueño del celular.
@@ -30,4 +32,27 @@ class Perfil {
 
   /// Cuántos documentos tiene guardados (lo llena el repositorio).
   final int documentos;
+
+  /// Su foto (JPEG cuadrado, pequeño), o `null` para mostrar la inicial
+  /// sobre su [color].
+  final Uint8List? foto;
+
+  Perfil copyWith({
+    String? nombre,
+    String? inicial,
+    Color? color,
+    TipoPerfil? tipo,
+    Uint8List? foto,
+    bool quitarFoto = false,
+    int? documentos,
+  }) => Perfil(
+    id: id,
+    nombre: nombre ?? this.nombre,
+    inicial: inicial ?? this.inicial,
+    color: color ?? this.color,
+    tipo: tipo ?? this.tipo,
+    esPropio: esPropio,
+    documentos: documentos ?? this.documentos,
+    foto: quitarFoto ? null : (foto ?? this.foto),
+  );
 }

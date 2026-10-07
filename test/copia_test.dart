@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'dart:ui';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tu_cajon/core/copia/llaves_de_copia.dart';
@@ -263,6 +264,14 @@ void main() {
         pdf: bytes([37, 80, 68, 70]),
       );
       await a.repo.descartarSugerencia('renovar:licencia');
+      // La foto de un perfil también viaja en la copia.
+      await a.repo.editarPerfil(
+        'mama',
+        nombre: 'Mamá',
+        tipo: TipoPerfil.persona,
+        color: const Color(0xFFE0584C),
+        foto: bytes([0xFF, 0xD8, 7, 7]),
+      );
       await a.copia.conectar();
       await a.copia.hacerCopia();
       return (a, (await a.llaves.leer())!);
@@ -283,6 +292,7 @@ void main() {
       final ahora = await b.repo.leerContenido();
       expect(ahora.nombre, antes.nombre);
       expect(ahora.perfiles.map((p) => p.id), antes.perfiles.map((p) => p.id));
+      expect(ahora.perfiles.firstWhere((p) => p.id == 'mama').foto, bytes([0xFF, 0xD8, 7, 7]));
       expect(ahora.documentos.map((d) => d.nombre).toSet(), antes.documentos.map((d) => d.nombre).toSet());
       expect(ahora.descartadas, contains('renovar:licencia'));
       final cedula = ahora.documentos.firstWhere((d) => d.nombre == 'Cédula');

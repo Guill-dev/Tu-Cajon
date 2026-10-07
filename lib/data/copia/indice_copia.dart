@@ -62,6 +62,7 @@ class IndiceCopia {
               'color': p.color.toARGB32(),
               'tipo': p.tipo.name,
               'propio': p.esPropio,
+              if (p.foto != null) 'foto': base64Encode(p.foto!),
             },
         ],
         'documentos': [
@@ -101,6 +102,7 @@ class IndiceCopia {
                 color: Color(p['color'] as int),
                 tipo: TipoPerfil.values.asNameMap()[p['tipo']] ?? TipoPerfil.persona,
                 esPropio: p['propio'] as bool,
+                foto: p['foto'] == null ? null : base64Decode(p['foto'] as String),
               ),
           ],
           documentos: [

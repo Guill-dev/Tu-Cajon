@@ -16,7 +16,8 @@ class BaseDatos extends _$BaseDatos {
   final bool cargarEjemplo;
 
   @override
-  int get schemaVersion => 1;
+  /// 2: foto de los perfiles.
+  int get schemaVersion => 2;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -24,6 +25,9 @@ class BaseDatos extends _$BaseDatos {
       await m.createAll();
       await _crearIndiceBusqueda();
       await sembrar(ejemplo: cargarEjemplo);
+    },
+    onUpgrade: (m, desde, hasta) async {
+      if (desde < 2) await m.addColumn(perfiles, perfiles.foto);
     },
     beforeOpen: (details) async {
       await customStatement('PRAGMA foreign_keys = ON');

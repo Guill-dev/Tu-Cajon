@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/archivos/buzon.dart';
 import '../../data/models/documento.dart';
+import '../../data/models/perfil.dart';
 import '../../features/agregar/agregar_screen.dart';
 import '../../features/ajustes/ajustes_screen.dart';
 import '../../features/bienvenida/bienvenida_screen.dart';
@@ -35,6 +36,7 @@ abstract final class AppRoutes {
   static const guardar = '/guardar'; // 10 · Guardar
   static const preguntar = '/preguntar'; // 11 · Pregúntale a tu cajón
   static const nuevoPerfil = '/perfil/nuevo'; // 12 · Nuevo perfil
+  static const editarPerfil = '/perfil/editar'; // Editar o eliminar un perfil (argumento: el Perfil)
   static const ajustes = '/ajustes'; // Ajustes (copia de seguridad)
   static const recuperar = '/recuperar'; // Recuperar mi cajón (celular nuevo)
   static const catalogo = '/_pantallas'; // Solo desarrollo: lista de pantallas
@@ -84,6 +86,7 @@ abstract final class AppRoutes {
       },
       preguntar => const PreguntarScreen(),
       nuevoPerfil => const AgregarPerfilScreen(),
+      editarPerfil => AgregarPerfilScreen(perfil: args is Perfil ? args : null),
       ajustes => const AjustesScreen(),
       recuperar => const RecuperarScreen(),
       catalogo => const CatalogoScreen(),

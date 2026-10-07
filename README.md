@@ -90,7 +90,8 @@ lib/
     ├── preguntar/             11 · Pregúntale a tu cajón (chat IA)
     ├── ajustes/               Ajustes: apariencia (día/noche) y copia de seguridad en Google Drive
     ├── recuperar/             Recuperar mi cajón (al estrenar celular)
-    ├── perfil/                12 · Nuevo perfil (Mamá, mascotas…)
+    ├── perfil/                12 · Nuevo perfil (Mamá, mascotas…), editar o eliminar un perfil, y
+    │                          ajustar su foto de la galería en un círculo
     └── catalogo/              Solo desarrollo: lista de todas las pantallas
 
 test/copia_test.dart           Copia de seguridad: cifrado, solo sube lo nuevo, recuperar con
@@ -100,7 +101,8 @@ test/bordes_test.dart          Bordes del papel: hoja torcida, cédula (también
 test/lectura_test.dart         Leer documentos: entender cédula, pasaporte, licencia, SOAT, RUT,
                                certificados y recibos; PDF; leer los guardados; Guardar lo llena.
 test/base_datos_test.dart      Base SQLite real (en memoria): búsqueda, guardar, renombrar,
-                               eliminar, perfiles, vencimientos, sugerencias y la IA local.
+                               eliminar, perfiles (editar, foto, eliminar y pasar sus documentos),
+                               actualizar una base vieja, vencimientos, sugerencias y la IA local.
 test/pantallas_test.dart       Abre las 12 pantallas en tamaño celular (390×844), de día y de
                                noche, y prueba el flujo: nombre → llave → Mi cajón → buscar →
                                Avisos, etc. También que cambia sola cuando el celular cambia.
@@ -211,8 +213,15 @@ Pantalla ──context.repo──▶ CajonRepositorio (interfaz)
 - **Las pantallas no hablan con la base de datos:** usan `context.repo` (`data/repositorio/`).
   Los métodos `vigilar…` devuelven `Stream`s. Si guardas o renombras un documento,
   "Mi cajón", "Avisos" y el contador de la barra se actualizan solos.
-- **Tablas** (`data/db/tablas.dart`): `perfiles`, `documentos` (borrar un perfil borra sus
-  documentos), `ajustes` (nombre, llave activada) y `sugerencias_descartadas`.
+- **Tablas** (`data/db/tablas.dart`): `perfiles` (con su foto, un JPEG cuadrado de 512 px, desde
+  la versión 2 de la base), `documentos`, `ajustes` (nombre, llave activada, apariencia) y
+  `sugerencias_descartadas`.
+- **Perfiles:** en "Mi cajón", el perfil elegido lleva un lápiz (o se deja presionada su tarjeta)
+  para editarlo: nombre, tipo, y un color o una foto de la galería, que se acomoda con los dedos
+  dentro de un círculo (`features/perfil/ajustar_foto.dart`). Cualquier perfil se puede eliminar
+  menos el propio ("Tú", del que solo cambian el color y la foto). Antes de eliminar se pregunta
+  otra vez y, si tiene documentos, qué hacer con ellos: pasarlos a tu perfil o eliminarlos
+  también (con sus archivos cifrados). La foto también va en la copia de seguridad.
 - **Búsqueda:** índice FTS5 `documentos_fts` que mantienen unos triggers. Busca por nombre,
   carpeta y texto leído del documento, sin importar las tildes ("conduccion" encuentra
   "conducción"). Lo usan el buscador de "Mi cajón" y "Pregúntale a tu cajón". Al tocar el

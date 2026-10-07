@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'dart:ui';
 
 import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:drift/native.dart';
@@ -186,6 +187,109 @@ void main() {
     });
   });
 
+  group('Editar y eliminar perfiles', () {
+    final foto = Uint8List.fromList([0xFF, 0xD8, 1, 2, 3]);
+
+    Future<Perfil> perfil(String id) async =>
+        (await repo.vigilarPerfiles().first).firstWhere((p) => p.id == id);
+
+    test('editar cambia nombre, tipo, color y foto; sin foto vuelve a la inicial', () async {
+      await repo.editarPerfil(
+        'mama',
+        nombre: ' Abuela ',
+        tipo: TipoPerfil.persona,
+        color: const Color(0xFF2E9468),
+        foto: foto,
+      );
+      var mama = await perfil('mama');
+      expect((mama.nombre, mama.inicial, mama.color.toARGB32()), ('Abuela', 'A', 0xFF2E9468));
+      expect(mama.foto, foto);
+      expect(mama.documentos, 4);
+
+      await repo.editarPerfil('mama', nombre: 'Abuela', tipo: TipoPerfil.persona, color: mama.color);
+      mama = await perfil('mama');
+      expect(mama.foto, isNull);
+    });
+
+    test('del perfil propio solo cambian el color y la foto', () async {
+      await repo.editarPerfil(
+        Perfil.idPropio,
+        nombre: 'Otro nombre',
+        tipo: TipoPerfil.mascota,
+        color: const Color(0xFFE0584C),
+        foto: foto,
+      );
+      final yo = await perfil(Perfil.idPropio);
+      expect((yo.nombre, yo.inicial, yo.tipo), ('Tú', 'M', TipoPerfil.persona));
+      expect(yo.color.toARGB32(), 0xFFE0584C);
+      expect(yo.foto, foto);
+      // Cambiar el nombre del dueño no le quita la foto.
+      await repo.guardarNombre('Ana');
+      expect((await perfil(Perfil.idPropio)).foto, foto);
+    });
+
+    test('eliminar un perfil pasa sus documentos al propio', () async {
+      await repo.eliminarPerfil('mama', conDocumentos: false);
+      final perfiles = await repo.vigilarPerfiles().first;
+      expect(perfiles.map((p) => p.id), [Perfil.idPropio]);
+      expect(perfiles.single.documentos, 12);
+    });
+
+    test('eliminar un perfil con sus documentos borra también sus archivos', () async {
+      final id = await repo.guardarDocumento(
+        const NuevoDocumento(perfilId: 'mama', nombre: 'Fórmula', categoria: Categoria.salud),
+        paginas: [
+          Uint8List.fromList([1, 2, 3]),
+        ],
+      );
+      final formula = (await repo.vigilarDocumento(id).first)!;
+      await repo.eliminarPerfil('mama', conDocumentos: true);
+      final perfiles = await repo.vigilarPerfiles().first;
+      expect(perfiles.map((p) => (p.id, p.documentos)), [(Perfil.idPropio, 8)]);
+      expect(await repo.vigilarDocumento(id).first, isNull);
+      expect(await repo.leerPaginas(formula), isEmpty);
+      expect(await repo.buscar('formula'), isEmpty);
+    });
+
+    test('el perfil propio no se puede eliminar', () async {
+      expect(() => repo.eliminarPerfil(Perfil.idPropio, conDocumentos: false), throwsArgumentError);
+      expect(await repo.vigilarPerfiles().first, hasLength(2));
+    });
+
+    test('una base de antes (sin fotos) se actualiza sola y no pierde sus perfiles', () async {
+      final vieja = DriftCajonRepositorio(
+        BaseDatos(
+          NativeDatabase.memory(
+            setup: (db) {
+              db.execute(
+                'CREATE TABLE perfiles (id TEXT NOT NULL, nombre TEXT NOT NULL, inicial TEXT NOT NULL, '
+                'color INTEGER NOT NULL, tipo TEXT NOT NULL, es_propio INTEGER NOT NULL DEFAULT 0, '
+                'creado_en INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (id))',
+              );
+              db.execute(
+                "INSERT INTO perfiles (id, nombre, inicial, color, tipo, es_propio) "
+                "VALUES ('yo', 'Tú', 'M', 4283523308, 'persona', 1)",
+              );
+              db.execute('PRAGMA user_version = 1');
+            },
+          ),
+        ),
+      );
+      addTearDown(vieja.cerrar);
+      await vieja.db.customStatement('SELECT 1');
+      await vieja.editarPerfil(
+        Perfil.idPropio,
+        nombre: 'Tú',
+        tipo: TipoPerfil.persona,
+        color: const Color(0xFF5160EC),
+        foto: foto,
+      );
+      final filas = await vieja.db.customSelect('SELECT nombre, foto FROM perfiles').get();
+      expect(filas.single.read<String>('nombre'), 'Tú');
+      expect(filas.single.read<Uint8List>('foto'), foto);
+    });
+  });
+
   group('Etiquetas y sugerencias', () {
     final hoy = DateTime(2026, 9, 22);
     Documento doc({DateTime? vence, int guardadoHace = 5, String nombre = 'Licencia de conducción'}) =>
@@ -232,6 +336,13 @@ void main() {
         ],
       );
       await repo.descartarSugerencia('renovar:licencia');
+      await repo.editarPerfil(
+        'mama',
+        nombre: 'Mamá',
+        tipo: TipoPerfil.persona,
+        color: const Color(0xFFE0584C),
+        foto: Uint8List.fromList([9, 9, 9]),
+      );
       final contenido = await repo.leerContenido();
       final archivos = {
         for (final d in contenido.documentos)
@@ -244,6 +355,7 @@ void main() {
 
       final ahora = await nueva.leerContenido();
       expect(ahora.nombre, 'Marta');
+      expect(ahora.perfiles.firstWhere((p) => p.id == 'mama').foto, [9, 9, 9]);
       expect(ahora.perfiles.map((p) => (p.id, p.nombre, p.esPropio, p.documentos)), [
         for (final p in await repo.vigilarPerfiles().first) (p.id, p.nombre, p.esPropio, p.documentos),
       ]);

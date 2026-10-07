@@ -18,6 +18,7 @@ import 'package:tu_cajon/core/router/app_routes.dart';
 import 'package:tu_cajon/core/theme/app_theme.dart';
 import 'package:tu_cajon/core/seguridad/llave_celular.dart';
 import 'package:tu_cajon/data/datos_ejemplo.dart';
+import 'package:tu_cajon/data/models/perfil.dart';
 import 'package:tu_cajon/data/repositorio/memoria_repositorio.dart';
 import 'package:tu_cajon/features/cajon/cajon_shell.dart';
 import 'package:tu_cajon/features/escanear/revisar_foto.dart';
@@ -265,6 +266,86 @@ void main() {
     await _capturar(tester, 'bordes_lupa');
     await dedo.up();
     await tester.pump(const Duration(seconds: 1));
+  });
+
+  for (final noche in [false, true]) {
+    testWidgets('Captura: editar perfil con foto${noche ? ' (de noche)' : ''}', (tester) async {
+      // Una "foto": degradado cálido con un círculo, para ver cómo queda.
+      final f = img.Image(width: 512, height: 512);
+      for (final px in f) {
+        px
+          ..r = 200 + (px.y * 55 ~/ 512)
+          ..g = 140 + (px.x * 60 ~/ 512)
+          ..b = 110;
+      }
+      img.fillCircle(f, x: 256, y: 220, radius: 110, color: img.ColorRgb8(120, 80, 60));
+      img.fillCircle(f, x: 256, y: 560, radius: 200, color: img.ColorRgb8(70, 90, 160));
+      final foto = Uint8List.fromList(img.encodeJpg(f, quality: 90));
+      await _abrir(
+        tester,
+        AppRoutes.editarPerfil,
+        args: DatosEjemplo.perfilMama.copyWith(foto: foto, documentos: 4),
+        noche: noche,
+      );
+      // Las fotos se abren de verdad antes de capturar.
+      await tester.runAsync(() async {
+        for (final e in find.byType(Image).evaluate()) {
+          await precacheImage((e.widget as Image).image, e);
+        }
+      });
+      await tester.pump(const Duration(milliseconds: 100));
+      await _capturar(tester, noche ? 'editar_perfil_noche' : 'editar_perfil');
+      // Abajo: el botón de eliminar, antes del aviso de que se guarda cifrado.
+      await tester.drag(find.byType(Scrollable).first, const Offset(0, -400));
+      await tester.pump(const Duration(milliseconds: 500));
+      await _capturar(tester, noche ? 'editar_perfil_abajo_noche' : 'editar_perfil_abajo');
+      await tester.pump(const Duration(seconds: 5));
+    });
+  }
+
+  testWidgets('Captura: Mi cajón con foto en tu perfil', (tester) async {
+    final f = img.Image(width: 512, height: 512);
+    for (final px in f) {
+      px
+        ..r = 200 + (px.y * 55 ~/ 512)
+        ..g = 140 + (px.x * 60 ~/ 512)
+        ..b = 110;
+    }
+    img.fillCircle(f, x: 256, y: 220, radius: 110, color: img.ColorRgb8(120, 80, 60));
+    img.fillCircle(f, x: 256, y: 560, radius: 200, color: img.ColorRgb8(70, 90, 160));
+    final repo = MemoriaCajonRepositorio();
+    await repo.editarPerfil(
+      'yo',
+      nombre: 'Tú',
+      tipo: TipoPerfil.persona,
+      color: const Color(0xFF5160EC),
+      foto: Uint8List.fromList(img.encodeJpg(f, quality: 90)),
+    );
+    tester.view.physicalSize = const Size(1170, 2532);
+    tester.view.devicePixelRatio = 3;
+    tester.view.padding = const FakeViewPadding(top: 120, bottom: 60);
+    tester.view.viewPadding = const FakeViewPadding(top: 120, bottom: 60);
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      RepaintBoundary(
+        key: _marco,
+        child: TuCajonApp(
+          repo: repo,
+          llave: LlaveSimulada(),
+          rutaInicial: AppRoutes.cajon,
+          argumentos: CajonTab.inicio,
+        ),
+      ),
+    );
+    await tester.pump(const Duration(seconds: 2));
+    await tester.runAsync(() async {
+      for (final e in find.byType(Image).evaluate()) {
+        await precacheImage((e.widget as Image).image, e);
+      }
+    });
+    await tester.pump(const Duration(milliseconds: 100));
+    await _capturar(tester, 'inicio_con_foto');
+    await tester.pump(const Duration(seconds: 5));
   });
 
   testWidgets('Captura: buscar', (tester) async {

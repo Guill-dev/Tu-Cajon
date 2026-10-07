@@ -73,7 +73,7 @@ class MemoriaCajonRepositorio implements CajonRepositorio {
   Future<void> guardarNombre(String nombre) async {
     _nombre = nombre.trim();
     final i = _perfiles.indexWhere((p) => p.esPropio);
-    _perfiles[i] = DatosEjemplo.perfilPropio(_nombre);
+    _perfiles[i] = _perfiles[i].copyWith(inicial: DatosEjemplo.inicialDe(_nombre));
     _avisar();
   }
 
@@ -88,21 +88,17 @@ class MemoriaCajonRepositorio implements CajonRepositorio {
   @override
   Stream<List<Perfil>> vigilarPerfiles() => _vigilar(
     () => [
-      for (final p in _perfiles)
-        Perfil(
-          id: p.id,
-          nombre: p.nombre,
-          inicial: p.inicial,
-          color: p.color,
-          tipo: p.tipo,
-          esPropio: p.esPropio,
-          documentos: _documentos.where((d) => d.perfilId == p.id).length,
-        ),
+      for (final p in _perfiles) p.copyWith(documentos: _documentos.where((d) => d.perfilId == p.id).length),
     ],
   );
 
   @override
-  Future<Perfil> crearPerfil({required String nombre, required TipoPerfil tipo, required Color color}) async {
+  Future<Perfil> crearPerfil({
+    required String nombre,
+    required TipoPerfil tipo,
+    required Color color,
+    Uint8List? foto,
+  }) async {
     final limpio = nombre.trim();
     final p = Perfil(
       id: 'perfil-${DateTime.now().microsecondsSinceEpoch}',
@@ -110,10 +106,57 @@ class MemoriaCajonRepositorio implements CajonRepositorio {
       inicial: DatosEjemplo.inicialDe(limpio),
       color: color,
       tipo: tipo,
+      foto: foto,
     );
     _perfiles.add(p);
     _avisar();
     return p;
+  }
+
+  @override
+  Future<void> editarPerfil(
+    String id, {
+    required String nombre,
+    required TipoPerfil tipo,
+    required Color color,
+    Uint8List? foto,
+  }) async {
+    final i = _perfiles.indexWhere((p) => p.id == id);
+    if (i < 0) return;
+    final limpio = nombre.trim();
+    final p = _perfiles[i];
+    _perfiles[i] = p.esPropio
+        ? p.copyWith(color: color, foto: foto, quitarFoto: foto == null)
+        : p.copyWith(
+            nombre: limpio,
+            inicial: DatosEjemplo.inicialDe(limpio),
+            tipo: tipo,
+            color: color,
+            foto: foto,
+            quitarFoto: foto == null,
+          );
+    _avisar();
+  }
+
+  @override
+  Future<void> eliminarPerfil(String id, {required bool conDocumentos}) async {
+    if (id == Perfil.idPropio) throw ArgumentError('El perfil propio no se puede eliminar.');
+    final aBorrar = <String>[];
+    for (var i = _documentos.length - 1; i >= 0; i--) {
+      final d = _documentos[i];
+      if (d.perfilId != id) continue;
+      if (conDocumentos) {
+        if (d.archivo != null) aBorrar.add(d.archivo!);
+        _documentos.removeAt(i);
+      } else {
+        _documentos[i] = d.copyWith(perfilId: Perfil.idPropio);
+      }
+    }
+    _perfiles.removeWhere((p) => p.id == id);
+    for (final ruta in aBorrar) {
+      await _archivos.borrar(ruta);
+    }
+    _avisar();
   }
 
   // ── Documentos ─────────────────────────────────────────────────────────

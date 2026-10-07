@@ -22,6 +22,9 @@ class Perfiles extends Table {
   BoolColumn get esPropio => boolean().withDefault(const Constant(false))();
   DateTimeColumn get creadoEn => dateTime().withDefault(currentDateAndTime)();
 
+  /// Foto del perfil (JPEG cuadrado de 512 px); sin foto, la inicial sobre su color.
+  BlobColumn get foto => blob().nullable()();
+
   @override
   Set<Column> get primaryKey => {id};
 }
