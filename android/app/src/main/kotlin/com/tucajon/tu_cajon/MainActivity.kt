@@ -36,6 +36,8 @@ class MainActivity : FlutterFragmentActivity() {
         LectorPdf(applicationContext).registrar(flutterEngine.dartExecutor.binaryMessenger)
         // Lee el texto de los documentos, sin internet (ver LectorDeTexto.kt).
         LectorDeTexto().registrar(flutterEngine.dartExecutor.binaryMessenger)
+        // Recorta, achica y pasa a JPEG las fotos, rápido (ver FotosDelCelular.kt).
+        FotosDelCelular().registrar(flutterEngine.dartExecutor.binaryMessenger)
         // La llave de la copia de seguridad y el Wi-Fi (ver CopiaDeSeguridad.kt).
         CopiaDeSeguridad(applicationContext).registrar(flutterEngine.dartExecutor.binaryMessenger)
         // Canal con lib/core/compartir/compartidor.dart.

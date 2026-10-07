@@ -261,7 +261,7 @@ Ajustes / Recuperar ──context.copia──▶ CopiaDeSeguridad (data/copia/)
 | "Compartir → Tu Cajón" solo en Android | En iPhone hace falta una extensión aparte (Share Extension) |
 
 Ya funcionan de verdad: la llave del cajón (huella, rostro, PIN o patrón del celular, con `local_auth`), que se vuelve a pedir cada vez que se sale de la app (`core/seguridad/cerrojo.dart`), los avisos de vencimiento (notificaciones del celular 30 días antes, 7 días antes y el mismo día a las 9 a. m., y "Recordarme el lunes"; se programan en el celular sin internet, sobreviven a un reinicio y al tocarlos abren el documento después de la llave: `core/avisos/` y `features/avisos/avisos_programados.dart`, con `flutter_local_notifications`), editar un documento guardado (sus datos en Guardar, o sus páginas con las herramientas de siempre en `features/paginas/`, guardando en el mismo lugar sin volver a preguntar), reemplazar las páginas de un documento, la cámara (con
-formatos de marco, páginas ilimitadas, bordes del papel automáticos (ver [Bordes automáticos](#bordes-automáticos)), revisar/recortar/eliminar cada foto y filtros de escáner, en
+formatos de marco, páginas ilimitadas, detectar los bordes del papel al recortar (ver [Bordes automáticos](#bordes-automáticos)), revisar/recortar/eliminar cada foto y filtros de escáner, en
 `features/escanear/`), leer los documentos (ver [Leer documentos](#leer-documentos)), subir un PDF (se guarda tal cual, cifrado; sus páginas se dibujan con el lector nativo de Android sin dejar copias, `core/pdf/`) o fotos de la galería con las mismas herramientas de la cámara (`features/paginas/`), recibir un PDF o fotos desde otras apps con "Compartir → Tu Cajón" (`ArchivosRecibidos.kt` los lee directo a la memoria, sin copias; se ven solo después de la llave; `core/archivos/recepcion.dart` y `features/recibir/`), enviar por WhatsApp o compartir como PDF (`core/compartir/`, el PDF temporal se borra solo), guardar documentos, eliminar, crear perfiles, buscar,
 descartar sugerencias, y recordar el nombre y la llave entre sesiones.
 
@@ -269,35 +269,35 @@ descartar sugerencias, y recordar el nombre y la llave entre sesiones.
 
 ## Bordes automáticos
 
-Como en los escáneres de celular: al tomar la foto, la app busca los bordes del papel, lo recorta
-y lo endereza (corrige la perspectiva), así queda como si se hubiera tomado de frente.
+Como en los escáneres de celular: en **Revisar → Recortar**, el botón **"Detectar"** busca los
+bordes del papel, y al tocar el visto lo recorta y lo endereza (corrige la perspectiva), así queda
+como si se hubiera tomado de frente.
 
-- **Automático** (el formato con que abre la cámara): la foto se toma normal, con todo el visor, y
-  después se busca el papel en ella (también una cédula de lejos), se recorta y se endereza con su
-  medida. Si era una cédula, se pide el reverso. Los demás formatos (Cédula, Hoja, 3:4…) siguen con
-  su marco; "Completa" guarda todo sin recortar. (Se probó buscar el papel en vivo sobre la cámara,
-  pero en el celular trababa la vista previa: se dejó solo después de tomar la foto.)
-- **Qué papel es** (`tipoDePapel`): por la forma. Una tarjeta (1,59) y una hoja oficio acostada
-  (1,65) casi no se distinguen, así que se usa cómo se sostiene el celular: un papel acostado es una
-  tarjeta y uno parado una hoja, salvo que sea pequeño (un carné vertical).
-- **Al tomar la foto** (`procesar_foto.dart`): se busca el papel en lo que hay dentro del marco y un
-  6 % más alrededor (por si el papel se salió un poco). Si lo encuentra, recorta y endereza; si no
-  (papel blanco sobre mesa blanca, o el papel se sale), queda lo que estaba dentro del marco. Las
-  fotos de la galería pasan por lo mismo. La primera vez se avisa con un mensaje.
+- **Al tomar la foto no se buscan bordes**, para que sea rápido: la cámara abre en "Completa"
+  (todo el visor) y se guarda lo que estaba dentro del marco. (Se probó buscar el papel en vivo
+  sobre la cámara y también justo después de cada foto, pero hacía la cámara más lenta.)
+- **Fotos rápidas** (`procesar_foto.dart` y `FotosDelCelular.kt`): recortar lo del marco, girarla
+  según su marca de giro, achicarla a 2400 px y pasarla a JPEG lo hacen el decodificador y el
+  codificador del celular (`BitmapRegionDecoder` abre solo la parte que sirve), varias veces más
+  rápido que en Dart. Mientras una foto se prepara (su miniatura muestra una ruedita) ya se puede
+  tomar la siguiente; salen en orden. Los filtros y "Recortar" también usan ese codificador. Sin él
+  (pruebas automáticas), todo se hace en Dart en otro hilo.
+- **Revisar → Recortar** (`revisar_foto.dart`): se ve la foto original (lo del marco y un 6 % más
+  alrededor). "Detectar" busca el papel; se arrastran las cuatro esquinas (una lupa muestra la
+  esquina ampliada para dejarla justo) o un lado entero desde su rayita, y "Restablecer" vuelve a
+  la foto entera. Como se guarda la original (`PaginaEditable`), los bordes se pueden volver a abrir
+  hacia afuera sin perder nada.
 - **Cómo lo busca** (`bordes.dart`, en otro hilo, unos 0,3 s): achica la foto a 480 px, marca los
   cambios fuertes de luz o de color (Sobel), encuentra las rectas largas con la transformada de
   Hough y elige, entre esas rectas, el cuadrilátero grande, con ángulos de papel y con más borde a lo
   largo de sus cuatro lados. Después afina cada lado con los puntos de borde cercanos (mínimos
-  cuadrados). Es visión por computador clásica: no usa un modelo de IA. Dentro de un marco el papel
-  debe ocupar al menos el 18 % de la foto; en "Automático", el 5 % (una cédula de lejos).
+  cuadrados). Es visión por computador clásica: no usa un modelo de IA. Primero busca un papel que
+  ocupe al menos el 18 % de la foto y, si no hay, uno desde el 5 % (una cédula de lejos).
 - **Enderezar** (`enderezarPixeles`): homografía del cuadrilátero a un rectángulo, con
-  interpolación bilineal. Una cédula toma la proporción de una tarjeta (85,6 × 54 mm) y una hoja la
-  de carta, A4 u oficio, la más parecida.
-- **Revisar → Recortar** (`revisar_foto.dart`): se ve la foto original con los bordes encontrados.
-  Se arrastran las cuatro esquinas (una lupa muestra la esquina ampliada para dejarla justo) o un
-  lado entero desde su rayita. "Detectar" los busca otra vez y "Restablecer" vuelve a la foto
-  entera. Como se guarda la original (`PaginaEditable`), los bordes se pueden volver a abrir hacia
-  afuera sin perder nada.
+  interpolación bilineal. Toma la medida real del papel, la más parecida: tarjeta (85,6 × 54 mm) o
+  carta, A4 u oficio. Con el marco "Cédula" u "Hoja" se sabe cuál es; si no, por su forma
+  (`tipoDePapel`): una tarjeta (1,59) y una hoja oficio acostada (1,65) casi no se distinguen, así
+  que un papel acostado es una tarjeta y uno parado una hoja, salvo que sea pequeño (un carné).
 
 ---
 

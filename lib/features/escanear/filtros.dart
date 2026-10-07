@@ -2,6 +2,7 @@ import 'dart:isolate';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'fotos_del_celular.dart';
 import 'pixeles.dart';
 
 /// Filtros "de escáner" para las fotos de documentos.
@@ -25,11 +26,12 @@ enum FiltroFoto {
 }
 
 /// Aplica el [filtro] a una foto JPEG. Se abre con el decodificador del
-/// celular y se filtra en otro hilo, para no trabar la pantalla.
+/// celular, se filtra en otro hilo (para no trabar la pantalla) y se vuelve
+/// a JPEG con el codificador del celular.
 Future<Uint8List> aplicarFiltro(Uint8List jpeg, FiltroFoto filtro) async {
   if (filtro == FiltroFoto.original) return jpeg;
   final pixeles = await decodificarFoto(jpeg);
-  return Isolate.run(() => codificarJpg(filtrarPixeles(pixeles, filtro)));
+  return aJpeg(await Isolate.run(() => filtrarPixeles(pixeles, filtro)));
 }
 
 /// Ajustes de cada filtro.

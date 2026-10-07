@@ -275,26 +275,29 @@ void main() {
       expect(derecha.height, closeTo(640, 12));
     });
 
-    testWidgets('Al tomar la foto: si se ve el papel, sale recortado y derecho; si no, queda el marco', (
+    testWidgets('Al tomar la foto queda lo del marco, sin buscar bordes (eso se hace en Detectar)', (
       tester,
     ) async {
+      // Aunque se vea el papel, se guarda la foto entera (rápido).
       final conPapel = await tester.runAsync(() => prepararPagina(fotoDePapel(papel)));
-      expect(conPapel!.detectada, isTrue);
-      final derecha = img.decodeJpg(conPapel.base)!;
-      expect(derecha.width, closeTo(456, 12));
-      expect(derecha.height, closeTo(640, 12));
-      expect(img.decodeJpg(conPapel.original)!.width, 600);
+      expect(conPapel!.esquinas.esTodo, isTrue);
+      expect(conPapel.original, same(conPapel.base));
+      final entera = img.decodeJpg(conPapel.base)!;
+      expect((entera.width, entera.height), (600, 800));
 
-      // Sin papel a la vista: lo que está dentro del marco (y la original con un poco más).
+      // Con un marco: lo que está dentro, y la original con un poco más alrededor.
       final lisa = Uint8List.fromList(img.encodeJpg(img.Image(width: 600, height: 800)));
-      final sinPapel = await tester.runAsync(
+      final enMarco = await tester.runAsync(
         () => prepararPagina(lisa, recorte: const Rect.fromLTRB(0.1, 0.1, 0.9, 0.9), proporcionCamara: 0.75),
       );
-      expect(sinPapel!.detectada, isFalse);
-      final marco = img.decodeJpg(sinPapel.base)!;
+      final marco = img.decodeJpg(enMarco!.base)!;
       expect((marco.width, marco.height), (480, 640));
-      expect(img.decodeJpg(sinPapel.original)!.width, greaterThan(480));
-      expect(sinPapel.esquinas.esTodo, isFalse);
+      final original = img.decodeJpg(enMarco.original)!;
+      expect(original.width, greaterThan(480));
+      // Las esquinas marcan dónde queda el marco dentro de la original.
+      final e = enMarco.esquinas;
+      expect(e.esTodo, isFalse);
+      expect((e.abajoDer.dx - e.arribaIzq.dx) * original.width, closeTo(480, 2));
     });
   });
 

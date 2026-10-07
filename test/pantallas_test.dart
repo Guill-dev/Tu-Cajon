@@ -410,19 +410,11 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('Escanear empieza en Automático y pide el reverso de la cédula', (tester) async {
+  testWidgets('Escanear empieza en Completa (pantalla entera)', (tester) async {
     await abrir(tester, AppRoutes.escanear);
-    expect(find.text('Automático'), findsOneWidget);
-    expect(
-      find.text('Toma la foto del documento: después lo recortamos y enderezamos solos'),
-      findsOneWidget,
-    );
-    await tester.tap(find.bySemanticsLabel('Tomar foto'));
-    await tester.pump(const Duration(milliseconds: 400));
-    expect(find.text('¡Bien! Ahora voltéala y escanea el reverso'), findsOneWidget);
-    await tester.tap(find.bySemanticsLabel('Tomar foto'));
-    await tester.pump(const Duration(milliseconds: 400));
-    expect(find.text('Toca una miniatura para revisarla, toma otra página o toca Terminar'), findsOneWidget);
+    expect(find.text('Completa'), findsOneWidget);
+    expect(find.text('Se guarda todo lo que ves en el recuadro'), findsOneWidget);
+    expect(find.text('Automático'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 

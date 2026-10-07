@@ -166,7 +166,7 @@ void main() {
     });
   });
 
-  group('Automático (todo el visor)', () {
+  group('Una foto completa (Detectar)', () {
     test('Una cédula de lejos, con su recuadro de foto: se encuentra el borde de afuera y es tarjeta', () {
       // Ocupa la mitad del ancho de la foto: dentro de un marco sería muy pequeña.
       const papel = [Offset(0.25, 0.41), Offset(0.75, 0.4), Offset(0.76, 0.58), Offset(0.24, 0.585)];

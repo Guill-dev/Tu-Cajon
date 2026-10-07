@@ -95,15 +95,15 @@ double _area(List<Offset> p) {
 /// recortar mal.
 ///
 /// [areaMinima] es la parte de la foto que el papel debe ocupar como mínimo:
-/// dentro de un marco el papel lo llena casi todo; en "Automático" (todo el
-/// visor) una cédula puede verse pequeña.
+/// dentro de un marco el papel lo llena casi todo; en una foto completa una
+/// cédula puede verse pequeña.
 Esquinas? detectarBordes(Pixeles p, {double areaMinima = areaMinimaEnMarco}) =>
     _Busqueda(p, areaMinima).buscar();
 
 /// Dentro de un marco con la forma del papel.
 const areaMinimaEnMarco = 0.18;
 
-/// En todo el visor ("Automático"): una cédula que ocupa casi la mitad del ancho.
+/// En una foto completa: una cédula que ocupa casi la mitad del ancho.
 const areaMinimaEnVisor = 0.05;
 
 class _Recta {

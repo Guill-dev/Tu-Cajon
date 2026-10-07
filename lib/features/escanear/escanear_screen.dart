@@ -66,13 +66,6 @@ class _EscanearScreenState extends State<EscanearScreen>
     with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   /// Qué decir arriba del visor, según el formato y las páginas tomadas.
   String _pista(int n) {
-    if (_formato == FormatoFoto.auto) {
-      // Después del frente de una cédula, va el reverso.
-      if (n.isOdd && _tipoUltima == TipoPapel.tarjeta) return '¡Bien! Ahora voltéala y escanea el reverso';
-      return n == 0
-          ? 'Toma la foto del documento: después lo recortamos y enderezamos solos'
-          : 'Toca una miniatura para revisarla, toma otra página o toca Terminar';
-    }
     if (n > 0 && !(_formato == FormatoFoto.cedula && n == 1)) {
       return 'Toca una miniatura para revisarla, toma otra página o toca Terminar';
     }
@@ -89,10 +82,7 @@ class _EscanearScreenState extends State<EscanearScreen>
   _Camara _estado = _Camara.cargando;
 
   /// La forma del marco. Se guarda solo lo que queda dentro.
-  FormatoFoto _formato = FormatoFoto.auto;
-
-  /// Qué papel era la última foto (para pedir el reverso de la cédula).
-  TipoPapel? _tipoUltima;
+  FormatoFoto _formato = FormatoFoto.completa;
 
   /// Tamaño del visor en pantalla, para saber dónde cae el marco en la foto.
   Size? _visorTam;
@@ -112,12 +102,20 @@ class _EscanearScreenState extends State<EscanearScreen>
   /// al revisar una página.
   FiltroFoto _filtro = FiltroFoto.original;
 
-  /// Ya se avisó que los bordes se ajustan solos.
-  bool _avisoBordes = false;
+  /// Ya se contó cómo recortar el papel.
+  bool _avisoRecortar = false;
+
+  /// Fotos tomadas que todavía se están preparando, y la fila en que
+  /// esperan (salen en el orden en que se tomaron).
+  int _preparando = 0;
+  Future<void> _cola = Future.value();
+
+  /// Tocó "Terminar" y se espera a que estén listas.
+  bool _terminando = false;
   int _simuladas = 0;
   bool _flash = false;
 
-  int get _paginas => _estado == _Camara.simulada ? _simuladas : _fotos.length;
+  int get _paginas => _estado == _Camara.simulada ? _simuladas : _fotos.length + _preparando;
 
   // Destello blanco al tomar la foto: opacidad 0.85 → 0 en 0.35 s.
   late final AnimationController _destello = AnimationController(
@@ -254,10 +252,7 @@ class _EscanearScreenState extends State<EscanearScreen>
     if (_tomando) return;
     if (_estado == _Camara.simulada) {
       HapticFeedback.lightImpact();
-      setState(() {
-        _simuladas++;
-        _tipoUltima = TipoPapel.tarjeta;
-      });
+      setState(() => _simuladas++);
       _destello.forward(from: 0);
       return;
     }
@@ -267,11 +262,8 @@ class _EscanearScreenState extends State<EscanearScreen>
     final tam = c.value.previewSize;
     final visor = _visorTam;
     final formato = _formato;
-    final filtro = _filtro;
-    // Para enderezar: una tarjeta o una hoja tienen medidas conocidas. En
-    // "Automático", las del papel que se encuentre.
+    // Para enderezar al recortar: una tarjeta o una hoja tienen medidas conocidas.
     final proporciones = switch (formato) {
-      FormatoFoto.auto => null,
       FormatoFoto.cedula => proporcionesTarjeta,
       FormatoFoto.hoja => proporcionesHoja,
       _ => const <double>[],
@@ -301,56 +293,12 @@ class _EscanearScreenState extends State<EscanearScreen>
           imagenCamara: imagenCamara,
         );
       }
-      PaginaEditable pagina;
-      TipoPapel? tipo;
-      var bordesAjustados = false;
-      try {
-        // Se buscan los bordes del papel y se endereza (si no se encuentran,
-        // queda lo que estaba dentro del marco). En "Completa" se guarda todo.
-        final lista = await prepararPagina(
-          bytes,
-          recorte: recorte,
-          proporcionCamara: proporcion,
-          filtro: filtro,
-          detectar: formato != FormatoFoto.completa,
-          proporciones: proporciones,
-          // En todo el visor una cédula puede verse pequeña.
-          areaMinima: formato == FormatoFoto.auto ? areaMinimaEnVisor : areaMinimaEnMarco,
-        );
-        tipo = lista.tipo;
-        pagina = PaginaEditable(
-          base: lista.base,
-          filtro: filtro,
-          foto: lista.foto,
-          original: lista.original,
-          esquinas: lista.esquinas,
-          proporciones: lista.proporciones,
-        );
-        bordesAjustados = lista.detectada;
-      } catch (e) {
-        debugPrint('No se pudo preparar la foto; se guarda tal cual: $e');
-        pagina = PaginaEditable.sinFiltro(bytes);
-      }
-      if (mounted) {
-        setState(() {
-          _fotos.add(pagina);
-          _tipoUltima = tipo;
-        });
-      }
-      // La primera vez, se cuenta lo que pasó (y cómo cambiarlo).
-      if (mounted && bordesAjustados && !_avisoBordes) {
-        _avisoBordes = true;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Encontramos los bordes del papel y lo enderezamos. Toca la miniatura para ajustarlos.',
-            ),
-            behavior: SnackBarBehavior.floating,
-            margin: EdgeInsets.fromLTRB(20, 0, 20, 200),
-            duration: Duration(seconds: 4),
-          ),
-        );
-      }
+      // Ya se puede tomar la siguiente: esta se prepara mientras tanto, en
+      // orden (su miniatura muestra una ruedita).
+      if (mounted) setState(() => _preparando++);
+      final primera = !_avisoRecortar;
+      _avisoRecortar = true;
+      _cola = _cola.then((_) => _preparar(bytes, recorte, proporcion, proporciones, avisar: primera));
     } on CameraException {
       if (mounted) {
         ScaffoldMessenger.of(context)
@@ -362,6 +310,53 @@ class _EscanearScreenState extends State<EscanearScreen>
       } else {
         _tomando = false;
       }
+    }
+  }
+
+  /// Recorta lo que estaba en el marco, lo achica y le pone el filtro.
+  Future<void> _preparar(
+    Uint8List bytes,
+    Rect? recorte,
+    double? proporcion,
+    List<double> proporciones, {
+    required bool avisar,
+  }) async {
+    final filtro = _filtro; // el último elegido, aunque se haya cambiado después de la foto
+    PaginaEditable pagina;
+    try {
+      final lista = await prepararPagina(
+        bytes,
+        recorte: recorte,
+        proporcionCamara: proporcion,
+        filtro: filtro,
+      );
+      pagina = PaginaEditable(
+        base: lista.base,
+        filtro: filtro,
+        foto: lista.foto,
+        original: lista.original,
+        esquinas: lista.esquinas,
+        proporciones: proporciones,
+      );
+    } catch (e) {
+      debugPrint('No se pudo preparar la foto; se guarda tal cual: $e');
+      pagina = PaginaEditable.sinFiltro(bytes);
+    }
+    if (!mounted) return;
+    setState(() {
+      _fotos.add(pagina);
+      _preparando--;
+    });
+    // La primera vez, se cuenta cómo recortar el papel.
+    if (avisar) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Para dejar solo el papel, toca la miniatura → Recortar → Detectar.'),
+          behavior: SnackBarBehavior.floating,
+          margin: EdgeInsets.fromLTRB(20, 0, 20, 200),
+          duration: Duration(seconds: 4),
+        ),
+      );
     }
   }
 
@@ -438,7 +433,15 @@ class _EscanearScreenState extends State<EscanearScreen>
   /// Sin cámara: de vuelta a "Agregar", para subir un PDF o elegir fotos.
   void _volverAAgregar() => Navigator.of(context).pop();
 
-  void _terminar() {
+  Future<void> _terminar() async {
+    if (_terminando) return;
+    if (_preparando > 0) {
+      // Las últimas fotos todavía se están preparando: un momento.
+      setState(() => _terminando = true);
+      await _cola;
+      if (!mounted) return;
+      setState(() => _terminando = false);
+    }
     if (widget.devolver) {
       Navigator.of(context).pop(<Uint8List>[for (final p in _fotos) p.foto]);
       return;
@@ -619,7 +622,8 @@ class _EscanearScreenState extends State<EscanearScreen>
                                           imagen: _fotos[i].foto,
                                           onTap: () => _revisar(i),
                                         )
-                                      : _Miniatura(numero: i + 1),
+                                      // Todavía preparándose (o la cédula de ejemplo, sin cámara).
+                                      : _Miniatura(numero: i + 1, preparando: _estado != _Camara.simulada),
                                 ),
                               ),
                             ),
@@ -652,7 +656,18 @@ class _EscanearScreenState extends State<EscanearScreen>
                                     radius: 24,
                                     height: 48,
                                     padding: const EdgeInsets.symmetric(horizontal: 14),
-                                    child: const _EtiquetaTerminar(color: AppColors.fondoCamara),
+                                    child: _terminando
+                                        ? const Center(
+                                            widthFactor: 1,
+                                            child: SizedBox.square(
+                                              dimension: 22,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2.5,
+                                                color: AppColors.primario,
+                                              ),
+                                            ),
+                                          )
+                                        : const _EtiquetaTerminar(color: AppColors.fondoCamara),
                                   )
                                 : Semantics(
                                     button: true,
@@ -772,8 +787,8 @@ class _EscanearScreenState extends State<EscanearScreen>
 }
 
 /// El marco sobre la cámara: esquinas donde empieza y termina la foto, y lo
-/// que queda afuera oscurecido (eso no se guarda). En "Automático" y
-/// "Completa" solo van las esquinas en los bordes del visor.
+/// que queda afuera oscurecido (eso no se guarda). En "Completa" solo van las
+/// esquinas en los bordes del visor.
 class _MarcoDocumento extends StatelessWidget {
   const _MarcoDocumento({required this.marco, required this.formato});
 
@@ -1030,9 +1045,12 @@ class _EsquinaPainter extends CustomPainter {
 }
 
 class _Miniatura extends StatelessWidget {
-  const _Miniatura({super.key, required this.numero, this.imagen, this.onTap});
+  const _Miniatura({super.key, required this.numero, this.imagen, this.onTap, this.preparando = false});
 
   final int numero;
+
+  /// La foto se está preparando: una ruedita en vez de la foto.
+  final bool preparando;
 
   /// La foto tomada (JPEG); en modo simulado es `null`.
   final Uint8List? imagen;
@@ -1074,7 +1092,17 @@ class _Miniatura extends StatelessWidget {
                     borderRadius: BorderRadius.circular(6),
                   ),
                   child: imagen == null
-                      ? null
+                      ? (preparando
+                            ? const Center(
+                                child: SizedBox.square(
+                                  dimension: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2.5,
+                                    color: AppColors.primario,
+                                  ),
+                                ),
+                              )
+                            : null)
                       // cacheWidth: decodifica la miniatura pequeña, no la foto grande entera.
                       : Image.memory(imagen!, fit: BoxFit.cover, cacheWidth: 120, gaplessPlayback: true),
                 ),

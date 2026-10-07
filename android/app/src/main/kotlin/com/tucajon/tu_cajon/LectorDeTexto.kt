@@ -3,8 +3,6 @@ package com.tucajon.tu_cajon
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
-import android.media.ExifInterface
-import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import com.google.android.gms.tasks.Tasks
@@ -14,7 +12,6 @@ import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodChannel
-import java.io.ByteArrayInputStream
 import java.util.concurrent.Executors
 
 /**
@@ -131,20 +128,7 @@ class LectorDeTexto {
         return derecha
     }
 
-    private fun giroSegunExif(bytes: ByteArray): Int {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return 0
-        return try {
-            when (ExifInterface(ByteArrayInputStream(bytes))
-                .getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)) {
-                ExifInterface.ORIENTATION_ROTATE_90 -> 90
-                ExifInterface.ORIENTATION_ROTATE_180 -> 180
-                ExifInterface.ORIENTATION_ROTATE_270 -> 270
-                else -> 0
-            }
-        } catch (_: Exception) {
-            0
-        }
-    }
+    // giroSegunExif: en FotosDelCelular.kt.
 
     private companion object {
         /** El lado largo queda entre 1600 y 3200 píxeles. */
