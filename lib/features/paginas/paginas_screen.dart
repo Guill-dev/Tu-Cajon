@@ -126,7 +126,8 @@ class _PaginasScreenState extends State<PaginasScreen> {
     for (final foto in fotos) {
       try {
         final filtro = _filtroNuevas;
-        // Como en la cámara: si se ven los bordes del papel, se recorta y endereza.
+        // Como en la cámara: si se ven los bordes del papel, se recorta y endereza
+        // (con la medida de una tarjeta o una hoja, si se parece).
         final lista = await prepararPagina(foto, filtro: filtro);
         if (!mounted) return;
         setState(() {
@@ -137,6 +138,7 @@ class _PaginasScreenState extends State<PaginasScreen> {
               foto: lista.foto,
               original: lista.original,
               esquinas: lista.esquinas,
+              proporciones: lista.proporciones,
             ),
           );
           _cambios = true;

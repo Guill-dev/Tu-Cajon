@@ -3,6 +3,10 @@ import 'dart:ui' show Offset, Rect, Size;
 
 /// Formatos del marco de la cámara. Se guarda solo lo que queda adentro.
 enum FormatoFoto {
+  /// Todo el visor, buscando los bordes del papel en vivo: sea tarjeta u
+  /// hoja, al tomar la foto se recorta y se endereza solo.
+  auto('Automático', null),
+
   /// Tarjeta: cédula, licencia, carné (85,6 × 54 mm).
   cedula('Cédula', 85.6 / 54),
 
@@ -19,13 +23,13 @@ enum FormatoFoto {
 
   final String etiqueta;
 
-  /// Ancho ÷ alto del marco; `null` en [completa].
+  /// Ancho ÷ alto del marco; `null` en [auto] y [completa] (el visor entero).
   final double? proporcion;
 }
 
 /// El marco dentro del visor: centrado, lo más grande posible sin pasar del
-/// 86 % del ancho ni del 82 % del alto (en [FormatoFoto.completa], el visor
-/// entero).
+/// 86 % del ancho ni del 82 % del alto (en [FormatoFoto.auto] y
+/// [FormatoFoto.completa], el visor entero).
 Rect marcoEnVisor(Size visor, FormatoFoto formato) {
   final proporcion = formato.proporcion;
   if (proporcion == null) return Offset.zero & visor;

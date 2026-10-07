@@ -92,8 +92,8 @@ lib/
 
 test/copia_test.dart           Copia de seguridad: cifrado, solo sube lo nuevo, recuperar con
                                la llave o con el código de emergencia, Wi-Fi y errores.
-test/bordes_test.dart          Bordes del papel: hoja torcida, cédula, mesa de madera, un dedo encima,
-                               casos sin papel claro, y enderezar con perspectiva.
+test/bordes_test.dart          Bordes del papel: hoja torcida, cédula (también de lejos), mesa de madera,
+                               un dedo encima, casos sin papel claro, qué papel es, y enderezar.
 test/lectura_test.dart         Leer documentos: entender cédula, pasaporte, licencia, SOAT, RUT,
                                certificados y recibos; PDF; leer los guardados; Guardar lo llena.
 test/base_datos_test.dart      Base SQLite real (en memoria): búsqueda, guardar, renombrar,
@@ -272,6 +272,14 @@ descartar sugerencias, y recordar el nombre y la llave entre sesiones.
 Como en los escáneres de celular: al tomar la foto, la app busca los bordes del papel, lo recorta
 y lo endereza (corrige la perspectiva), así queda como si se hubiera tomado de frente.
 
+- **Automático** (el formato con que abre la cámara): la foto se toma normal, con todo el visor, y
+  después se busca el papel en ella (también una cédula de lejos), se recorta y se endereza con su
+  medida. Si era una cédula, se pide el reverso. Los demás formatos (Cédula, Hoja, 3:4…) siguen con
+  su marco; "Completa" guarda todo sin recortar. (Se probó buscar el papel en vivo sobre la cámara,
+  pero en el celular trababa la vista previa: se dejó solo después de tomar la foto.)
+- **Qué papel es** (`tipoDePapel`): por la forma. Una tarjeta (1,59) y una hoja oficio acostada
+  (1,65) casi no se distinguen, así que se usa cómo se sostiene el celular: un papel acostado es una
+  tarjeta y uno parado una hoja, salvo que sea pequeño (un carné vertical).
 - **Al tomar la foto** (`procesar_foto.dart`): se busca el papel en lo que hay dentro del marco y un
   6 % más alrededor (por si el papel se salió un poco). Si lo encuentra, recorta y endereza; si no
   (papel blanco sobre mesa blanca, o el papel se sale), queda lo que estaba dentro del marco. Las
@@ -280,10 +288,11 @@ y lo endereza (corrige la perspectiva), así queda como si se hubiera tomado de 
   cambios fuertes de luz o de color (Sobel), encuentra las rectas largas con la transformada de
   Hough y elige, entre esas rectas, el cuadrilátero grande, con ángulos de papel y con más borde a lo
   largo de sus cuatro lados. Después afina cada lado con los puntos de borde cercanos (mínimos
-  cuadrados). Es visión por computador clásica: no usa un modelo de IA.
+  cuadrados). Es visión por computador clásica: no usa un modelo de IA. Dentro de un marco el papel
+  debe ocupar al menos el 18 % de la foto; en "Automático", el 5 % (una cédula de lejos).
 - **Enderezar** (`enderezarPixeles`): homografía del cuadrilátero a un rectángulo, con
   interpolación bilineal. Una cédula toma la proporción de una tarjeta (85,6 × 54 mm) y una hoja la
-  de carta, A4 u oficio si se parece.
+  de carta, A4 u oficio, la más parecida.
 - **Revisar → Recortar** (`revisar_foto.dart`): se ve la foto original con los bordes encontrados.
   Se arrastran las cuatro esquinas (una lupa muestra la esquina ampliada para dejarla justo) o un
   lado entero desde su rayita. "Detectar" los busca otra vez y "Restablecer" vuelve a la foto

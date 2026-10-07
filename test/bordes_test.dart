@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -165,6 +166,44 @@ void main() {
     });
   });
 
+  group('Automático (todo el visor)', () {
+    test('Una cédula de lejos, con su recuadro de foto: se encuentra el borde de afuera y es tarjeta', () {
+      // Ocupa la mitad del ancho de la foto: dentro de un marco sería muy pequeña.
+      const papel = [Offset(0.25, 0.41), Offset(0.75, 0.4), Offset(0.76, 0.58), Offset(0.24, 0.585)];
+      final imagen = foto(
+        ancho: 720,
+        alto: 1280,
+        papel: papel,
+        fondo: img.ColorRgb8(96, 84, 70),
+        colorPapel: img.ColorRgb8(205, 218, 236),
+        recuadro: true,
+        semilla: 4,
+      );
+      expect(detectarBordes(imagen), isNull);
+      final e = detectarBordes(imagen, areaMinima: areaMinimaEnVisor);
+      esperarCerca(e, papel);
+      expect(tipoDePapel(e!, ancho: 720, alto: 1280), TipoPapel.tarjeta);
+    });
+
+    test('Qué papel es, por su forma y cómo se sostiene el celular', () {
+      Esquinas rect(double w, double h) => Esquinas.deRect(Rect.fromLTWH(0.1, 0.1, w, h));
+      // En una foto de 1000×1000 las fracciones son píxeles / 1000.
+      TipoPapel tipo(Esquinas e) => tipoDePapel(e, ancho: 1000, alto: 1000);
+      expect(tipo(rect(0.8, 0.8 * 54 / 85.6)), TipoPapel.tarjeta);
+      // Acostada y con la perspectiva corrida, sigue siendo tarjeta (no una hoja oficio acostada).
+      expect(tipo(rect(0.8, 0.8 / 1.66)), TipoPapel.tarjeta);
+      // Parada: si es pequeña, un carné; si llena la foto, una hoja oficio.
+      expect(tipo(rect(0.25, 0.25 * 85.6 / 54)), TipoPapel.tarjeta);
+      expect(tipo(rect(0.5, 0.5 * 85.6 / 54)), TipoPapel.hoja);
+      expect(tipo(rect(0.6, 0.6 * 11 / 8.5)), TipoPapel.hoja); // carta
+      expect(tipo(rect(0.55, 0.55 * 297 / 210)), TipoPapel.hoja); // A4
+      expect(tipo(rect(0.7, 0.7)), TipoPapel.documento); // cuadrado
+      expect(tipo(rect(0.8, 0.2)), TipoPapel.documento); // tira larga
+      expect(proporcionesDe(TipoPapel.tarjeta), proporcionesTarjeta);
+      expect(proporcionesDe(null), isEmpty);
+    });
+  });
+
   group('Enderezar', () {
     test('Un rectángulo derecho es un recorte simple', () {
       final p = foto(papel: const [Offset(0, 0), Offset(1, 0), Offset(1, 1), Offset(0, 1)], renglones: false);
@@ -208,6 +247,14 @@ void main() {
       expect(r.ancho / r.alto, closeTo(85.6 / 54, 0.01));
       // Las esquinas de la salida son papel (blanco), no mesa.
       expect(r.rgba[(3 * r.ancho + 3) * 4], greaterThan(200));
+    });
+
+    test('Se usa la medida conocida más parecida', () {
+      final p = Pixeles(Uint8List(400 * 400 * 4), 400, 400);
+      // Casi carta (0,75) en perspectiva: queda carta (0,773), no A4 (0,707).
+      const casiCarta = Esquinas(Offset(0.1, 0.1), Offset(0.7, 0.12), Offset(0.7, 0.88), Offset(0.1, 0.9));
+      final r = enderezarPixeles(p, casiCarta, proporciones: proporcionesHoja);
+      expect(r.ancho / r.alto, closeTo(8.5 / 11, 0.01));
     });
   });
 }

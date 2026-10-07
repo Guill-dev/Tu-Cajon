@@ -26,16 +26,20 @@ class Esquinas {
 
   Esquinas cambiar(int i, Offset punto) => Esquinas.deLista([...lista]..[i] = punto);
 
+  /// Cuánto se movió la esquina que más se movió.
+  double distancia(Esquinas otras) {
+    var d = 0.0;
+    for (var i = 0; i < 4; i++) {
+      d = math.max(d, (lista[i] - otras.lista[i]).distance);
+    }
+    return d;
+  }
+
   /// Casi la foto entera (no hace falta recortar).
   bool get esTodo => casiIgual(todo);
 
   /// Las mismas esquinas, salvo diferencias que no se notan.
-  bool casiIgual(Esquinas otras) {
-    for (var i = 0; i < 4; i++) {
-      if ((lista[i] - otras.lista[i]).distance > 0.004) return false;
-    }
-    return true;
-  }
+  bool casiIgual(Esquinas otras) => distancia(otras) <= 0.004;
 
   /// Los cuatro lados derechos (se puede recortar sin enderezar).
   bool get esRectangulo =>
@@ -89,7 +93,18 @@ double _area(List<Offset> p) {
 /// Devuelve `null` si no encuentra un papel claro (p. ej. papel blanco sobre
 /// mesa blanca, o el papel se sale de la foto): mejor no recortar que
 /// recortar mal.
-Esquinas? detectarBordes(Pixeles p) => _Busqueda(p).buscar();
+///
+/// [areaMinima] es la parte de la foto que el papel debe ocupar como mínimo:
+/// dentro de un marco el papel lo llena casi todo; en "Automático" (todo el
+/// visor) una cédula puede verse pequeña.
+Esquinas? detectarBordes(Pixeles p, {double areaMinima = areaMinimaEnMarco}) =>
+    _Busqueda(p, areaMinima).buscar();
+
+/// Dentro de un marco con la forma del papel.
+const areaMinimaEnMarco = 0.18;
+
+/// En todo el visor ("Automático"): una cédula que ocupa casi la mitad del ancho.
+const areaMinimaEnVisor = 0.05;
 
 class _Recta {
   _Recta(this.theta, this.rho, this.votos);
@@ -117,7 +132,7 @@ class _Recta {
 }
 
 class _Busqueda {
-  _Busqueda(Pixeles foto) {
+  _Busqueda(Pixeles foto, this.areaMinima) {
     final escala = math.min(1.0, _lado / math.max(foto.ancho, foto.alto));
     w = math.max(8, (foto.ancho * escala).round());
     h = math.max(8, (foto.alto * escala).round());
@@ -127,6 +142,12 @@ class _Busqueda {
   }
 
   static const _lado = 480;
+
+  final double areaMinima;
+
+  /// Lo mínimo que se separan dos lados opuestos (fracción del ancho o del
+  /// alto): 15 % con el área de un marco, menos si el papel puede ser chico.
+  double get _separacion => 0.15 * math.sqrt(areaMinima / areaMinimaEnMarco);
 
   late final int w;
   late final int h;
@@ -401,6 +422,7 @@ class _Busqueda {
     List<Offset>? mejor;
     var mejorPuntaje = 0.0;
     final areaFoto = (w * h).toDouble();
+    final separacion = _separacion;
     // Los cruces y lo que se mide de cada lado se repiten entre cuadriláteros:
     // se calculan una vez.
     final cruces = [
@@ -411,17 +433,17 @@ class _Busqueda {
     for (var i = 0; i < horizontales.length; i++) {
       for (var j = i + 1; j < horizontales.length; j++) {
         final arriba = horizontales[i], abajo = horizontales[j];
-        if (abajo.posicion(cx, cy) - arriba.posicion(cx, cy) < h * 0.15) continue;
+        if (abajo.posicion(cx, cy) - arriba.posicion(cx, cy) < h * separacion) continue;
         for (var k = 0; k < verticales.length; k++) {
           for (var l = k + 1; l < verticales.length; l++) {
             final izq = verticales[k], der = verticales[l];
-            if (der.posicion(cx, cy) - izq.posicion(cx, cy) < w * 0.15) continue;
+            if (der.posicion(cx, cy) - izq.posicion(cx, cy) < w * separacion) continue;
             final p = [cruces[i][k], cruces[i][l], cruces[j][l], cruces[j][k]];
             if (p.contains(null)) continue;
             final q = p.cast<Offset>();
             if (!_forma(q)) continue;
             final area = _area(q) / areaFoto;
-            if (area < 0.18) continue;
+            if (area < areaMinima) continue;
             // Cada lado: su recta y las dos que lo cortan.
             final claves = [
               (i * 64 + k) * 64 + l,
@@ -493,9 +515,72 @@ class _Busqueda {
 const proporcionesTarjeta = [85.6 / 54];
 const proporcionesHoja = [8.5 / 11, 210 / 297, 8.5 / 14];
 
+/// Qué clase de papel parece, por su forma.
+enum TipoPapel {
+  tarjeta('Cédula o tarjeta'),
+  hoja('Hoja'),
+  documento('Documento');
+
+  const TipoPapel(this.etiqueta);
+
+  final String etiqueta;
+}
+
+/// Ancho y alto (en píxeles) que tendría el papel ya derecho: el lado más
+/// largo de cada par (el más cercano a la cámara se ve completo).
+(double, double) _medidas(List<Offset> q) => (
+  math.max((q[1] - q[0]).distance, (q[2] - q[3]).distance),
+  math.max((q[3] - q[0]).distance, (q[2] - q[1]).distance),
+);
+
+/// De las [proporciones] (y las mismas giradas), la que más se parece a
+/// [medida], si está a menos del 12 %.
+double? _proporcionCercana(double medida, List<double> proporciones) {
+  double? mejor;
+  var diferencia = 0.12;
+  for (final pr in proporciones) {
+    for (final objetivo in [pr, 1 / pr]) {
+      final d = (medida / objetivo - 1).abs();
+      if (d < diferencia) {
+        diferencia = d;
+        mejor = objetivo;
+      }
+    }
+  }
+  return mejor;
+}
+
+/// Si el papel con estas [esquinas] (en una foto de [ancho]×[alto]) tiene
+/// forma de tarjeta, de hoja o de otra cosa.
+///
+/// Solo con la forma, una tarjeta y una hoja oficio se parecen (1,59 y
+/// 1,65), y más con la perspectiva. Pero con el celular vertical, un papel
+/// acostado casi siempre es una tarjeta, y uno parado, una hoja (salvo que
+/// sea pequeño: un carné vertical).
+TipoPapel tipoDePapel(Esquinas esquinas, {required double ancho, required double alto}) {
+  final (w, h) = _medidas([for (final e in esquinas.lista) Offset(e.dx * ancho, e.dy * alto)]);
+  final medida = w / h;
+  if (medida >= 1) {
+    if (medida >= 1.45 && medida <= 1.8) return TipoPapel.tarjeta;
+    return _proporcionCercana(medida, proporcionesHoja) != null ? TipoPapel.hoja : TipoPapel.documento;
+  }
+  if (_area(esquinas.lista) < 0.25 && (medida * proporcionesTarjeta.first - 1).abs() < 0.08) {
+    return TipoPapel.tarjeta;
+  }
+  if (_proporcionCercana(medida, proporcionesHoja) != null) return TipoPapel.hoja;
+  return _proporcionCercana(medida, proporcionesTarjeta) != null ? TipoPapel.tarjeta : TipoPapel.documento;
+}
+
+/// Las medidas para enderezar un papel de este [tipo] (sin tipo, ninguna).
+List<double> proporcionesDe(TipoPapel? tipo) => switch (tipo) {
+  TipoPapel.tarjeta => proporcionesTarjeta,
+  TipoPapel.hoja => proporcionesHoja,
+  _ => const [],
+};
+
 /// Recorta el papel con sus [esquinas] y lo deja derecho, como si la foto se
-/// hubiera tomado de frente (corrección de perspectiva). Si [proporciones]
-/// trae la de este papel y se parece, se ajusta a ella.
+/// hubiera tomado de frente (corrección de perspectiva). Si alguna de las
+/// [proporciones] se parece a la de este papel, se ajusta a la más parecida.
 Pixeles enderezarPixeles(
   Pixeles p,
   Esquinas esquinas, {
@@ -514,17 +599,11 @@ Pixeles enderezarPixeles(
       math.max(1, r.height.round()),
     );
   }
-  var ancho = math.max((q[1] - q[0]).distance, (q[2] - q[3]).distance);
-  var alto = math.max((q[3] - q[0]).distance, (q[2] - q[1]).distance);
-  final medida = ancho / alto;
-  for (final pr in proporciones) {
-    for (final objetivo in [pr, 1 / pr]) {
-      if ((medida / objetivo - 1).abs() < 0.12) {
-        final area = ancho * alto;
-        ancho = math.sqrt(area * objetivo);
-        alto = ancho / objetivo;
-      }
-    }
+  var (ancho, alto) = _medidas(q);
+  if (_proporcionCercana(ancho / alto, proporciones) case final objetivo?) {
+    final area = ancho * alto;
+    ancho = math.sqrt(area * objetivo);
+    alto = ancho / objetivo;
   }
   final achique = math.min(1.0, ladoMaximo / math.max(ancho, alto));
   final w = math.max(1, (ancho * achique).round());

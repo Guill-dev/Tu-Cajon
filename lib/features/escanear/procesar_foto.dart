@@ -13,13 +13,16 @@ import 'recorte.dart';
 ///
 /// [original] es la foto de la que salió (un poco más que el marco) y
 /// [esquinas] dónde está el papel en ella: con eso se pueden volver a
-/// ajustar los bordes sin perder nada.
+/// ajustar los bordes sin perder nada. Si se encontró el papel, [tipo] dice
+/// qué parece; [proporciones] son las medidas con que se enderezó.
 typedef PaginaLista = ({
   Uint8List base,
   Uint8List foto,
   Uint8List original,
   Esquinas esquinas,
   bool detectada,
+  TipoPapel? tipo,
+  List<double> proporciones,
 });
 
 /// Lo que pasa con cada foto recién tomada:
@@ -30,7 +33,8 @@ typedef PaginaLista = ({
 ///    letras pequeñas se conserva y el PDF no pesa de más);
 /// 4. con [detectar], se buscan los bordes del papel ([detectarBordes]); si
 ///    se encuentran, el papel se recorta y se endereza (como en un escáner).
-///    Si no, queda lo que estaba dentro del marco;
+///    Si no, queda lo que estaba dentro del marco. Se endereza con las medidas de [proporciones] o, sin ellas, con las
+///    del papel que parece (tarjeta u hoja);
 /// 5. se pasa a JPEG sin los datos ocultos de la cámara (ubicación, modelo…);
 /// 6. si hay [filtro], se aplica.
 ///
@@ -41,7 +45,8 @@ Future<PaginaLista> prepararPagina(
   double? proporcionCamara,
   FiltroFoto filtro = FiltroFoto.original,
   bool detectar = true,
-  List<double> proporciones = const [],
+  List<double>? proporciones,
+  double areaMinima = areaMinimaEnMarco,
 }) async {
   final pixeles = await decodificarFoto(jpegCamara);
   return Isolate.run(() {
@@ -67,9 +72,13 @@ Future<PaginaLista> prepararPagina(
       }
     }
     p = achicarSiHaceFalta(p);
-    final hallada = detectar ? detectarBordes(p) : null;
+    final hallada = detectar ? detectarBordes(p, areaMinima: areaMinima) : null;
     if (hallada != null) esquinas = hallada;
-    final recortada = esquinas.esTodo ? p : enderezarPixeles(p, esquinas, proporciones: proporciones);
+    final tipo = hallada == null
+        ? null
+        : tipoDePapel(hallada, ancho: p.ancho.toDouble(), alto: p.alto.toDouble());
+    final medidas = proporciones ?? proporcionesDe(tipo);
+    final recortada = esquinas.esTodo ? p : enderezarPixeles(p, esquinas, proporciones: medidas);
     final base = codificarJpg(recortada);
     final foto = filtro == FiltroFoto.original ? base : codificarJpg(filtrarPixeles(recortada, filtro));
     return (
@@ -78,6 +87,8 @@ Future<PaginaLista> prepararPagina(
       original: esquinas.esTodo ? base : codificarJpg(p),
       esquinas: esquinas,
       detectada: hallada != null,
+      tipo: tipo,
+      proporciones: medidas,
     );
   });
 }
@@ -95,10 +106,11 @@ Future<Uint8List> enderezarFoto(
   );
 }
 
-/// Busca los bordes del papel en una foto (para el botón "Detectar").
+/// Busca los bordes del papel en una foto (para el botón "Detectar"): primero
+/// un papel grande y, si no hay, también uno pequeño (una cédula de lejos).
 Future<Esquinas?> detectarEnFoto(Uint8List jpeg) async {
   final pixeles = await decodificarFoto(jpeg);
-  return Isolate.run(() => detectarBordes(pixeles));
+  return Isolate.run(() => detectarBordes(pixeles) ?? detectarBordes(pixeles, areaMinima: areaMinimaEnVisor));
 }
 
 Pixeles _cortar(Pixeles p, Rect r) => recortarPixeles(
