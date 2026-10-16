@@ -45,7 +45,7 @@ class LecturaDeDocumentos {
   }) : _contarPdf = contarPdf ?? LectorPdf.contarPaginas,
        _dibujarPdf =
            dibujarPdf ??
-           ((pdf, desde, hasta) => LectorPdf.dibujar(pdf, ancho: 1600, desde: desde, hasta: hasta));
+           ((pdf, desde, hasta) => LectorPdf.dibujar(pdf, ancho: 2000, desde: desde, hasta: hasta));
 
   final LectorDeTexto lector;
 

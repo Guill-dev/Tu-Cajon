@@ -288,10 +288,10 @@ abstract final class Interprete {
   /// primera página (y su tamaño), propone un título si no reconoce el tipo.
   static DatosLeidos entender(String texto, {List<LineaLeida> lineas = const []}) {
     if (texto.trim().isEmpty) return const DatosLeidos();
-    final normal = Formato.normalizar(texto);
+    final normal = corregirLectura(Formato.normalizar(texto));
     final tipo = _tipoDe(normal);
     final fechas = _fechas(normal);
-    final numero = _numero(texto, normal, tipo?.numero ?? _Numero.general);
+    final numero = _numero(normal.toUpperCase(), normal, tipo?.numero ?? _Numero.general);
     final vence = _vencimiento(normal, fechas, tipo?.vence ?? _Vence.siLoDice);
     if (tipo == null) {
       return DatosLeidos(nombre: _titulo(lineas), numero: numero, venceEn: vence);
@@ -308,9 +308,29 @@ abstract final class Interprete {
 
   /// El número principal del documento (para "Pregúntale" y el detalle).
   static String? numero(String texto) {
-    final normal = Formato.normalizar(texto);
-    return _numero(texto, normal, _tipoDe(normal)?.numero ?? _Numero.general);
+    final normal = corregirLectura(Formato.normalizar(texto));
+    return _numero(normal.toUpperCase(), normal, _tipoDe(normal)?.numero ?? _Numero.general);
   }
+
+  // ── Lo que el lector suele confundir ───────────────────────────────────
+
+  static final _cifraEntreLetras = RegExp(r'(?<=[a-zñ])[0158|](?=[a-zñ])');
+  static final _letraEntreCifras = RegExp(r'(?<=\d[.,/\-]?)[oilsz|](?=[.,/\-]?\d)');
+
+  /// Arregla en el texto [normal] (minúsculas, sin tildes) las confusiones
+  /// típicas del lector: una cifra en medio de una palabra ("venc1miento",
+  /// "c0nduccion") y una letra en medio de un número ("52.348.9l0",
+  /// "2O30"). Así se reconocen el tipo, el número y las fechas aunque la
+  /// foto no haya salido perfecta.
+  static String corregirLectura(String normal) => normal
+      .replaceAllMapped(
+        _cifraEntreLetras,
+        (m) => const {'0': 'o', '1': 'i', '5': 's', '8': 'b', '|': 'l'}[m[0]]!,
+      )
+      .replaceAllMapped(
+        _letraEntreCifras,
+        (m) => const {'o': '0', 'i': '1', 'l': '1', '|': '1', 's': '5', 'z': '2'}[m[0]]!,
+      );
 
   // ── Tipo ───────────────────────────────────────────────────────────────
 

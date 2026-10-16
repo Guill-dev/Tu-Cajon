@@ -5,10 +5,64 @@ import 'package:flutter/services.dart';
 
 /// Una línea de texto leída y dónde está en la página (en píxeles).
 class LineaLeida {
-  const LineaLeida(this.texto, this.caja);
+  const LineaLeida(this.texto, this.caja, {this.angulo = 0, this.confianza = 1});
 
   final String texto;
   final Rect caja;
+
+  /// Cuánto está inclinada (grados, positivo hacia abajo a la derecha).
+  final double angulo;
+
+  /// Qué tan seguro está el lector de lo que leyó (0 a 1).
+  final double confianza;
+}
+
+/// El texto de la página en el orden en que se lee: de arriba abajo y, en
+/// cada renglón, de izquierda a derecha.
+///
+/// El lector entrega el texto por bloques, y en formularios, tablas y
+/// recibos eso separa cada etiqueta de su valor ("TOTAL A PAGAR" lejos de
+/// "$120.000"). Aquí se juntan las líneas que están a la misma altura (con
+/// la foto enderezada según la inclinación típica de los renglones).
+String textoEnOrden(List<LineaLeida> lineas) {
+  final conTexto = [
+    for (final l in lineas)
+      if (l.texto.trim().isNotEmpty) l,
+  ];
+  if (conTexto.isEmpty) return '';
+  final angulos = [for (final l in conTexto) l.angulo]..sort();
+  final a = angulos[angulos.length ~/ 2] * math.pi / 180;
+  final coseno = math.cos(a), seno = math.sin(a);
+  // El centro de cada línea, girado para que los renglones queden horizontales.
+  final items = [
+    for (final l in conTexto)
+      (
+        linea: l,
+        x: l.caja.center.dx * coseno + l.caja.center.dy * seno,
+        y: -l.caja.center.dx * seno + l.caja.center.dy * coseno,
+        // Una línea inclinada tiene la caja más alta que su letra.
+        alto: math.max(1.0, l.caja.height * coseno - l.caja.width * seno.abs()),
+      ),
+  ]..sort((p, q) => p.y.compareTo(q.y));
+
+  final renglones = <List<({LineaLeida linea, double x, double y, double alto})>>[];
+  for (final it in items) {
+    final actual = renglones.isEmpty ? null : renglones.last;
+    if (actual != null) {
+      final y = actual.map((e) => e.y).reduce((p, q) => p + q) / actual.length;
+      final alto = math.min(actual.map((e) => e.alto).reduce(math.min), it.alto);
+      // A la misma altura: menos de media letra de diferencia.
+      if ((it.y - y).abs() < alto * 0.5) {
+        actual.add(it);
+        continue;
+      }
+    }
+    renglones.add([it]);
+  }
+  return [
+    for (final r in renglones)
+      (r..sort((p, q) => p.x.compareTo(q.x))).map((e) => e.linea.texto.trim()).join(' '),
+  ].join('\n');
 }
 
 /// Lo que se leyó en una página.
@@ -84,15 +138,19 @@ class LectorDelSistema implements LectorDeTexto {
     }
     if (r == null) return PaginaLeida.vacia;
     double n(Object? v) => (v as num?)?.toDouble() ?? 0;
+    final lineas = [
+      for (final l in (r['lineas'] as List<Object?>? ?? const []).cast<Map<Object?, Object?>>())
+        LineaLeida(
+          l['texto'] as String? ?? '',
+          Rect.fromLTWH(n(l['x']), n(l['y']), n(l['ancho']), n(l['alto'])),
+          angulo: n(l['angulo']),
+          confianza: (l['confianza'] as num?)?.toDouble() ?? 1,
+        ),
+    ];
     return PaginaLeida(
-      texto: r['texto'] as String? ?? '',
-      lineas: [
-        for (final l in (r['lineas'] as List<Object?>? ?? const []).cast<Map<Object?, Object?>>())
-          LineaLeida(
-            l['texto'] as String? ?? '',
-            Rect.fromLTWH(n(l['x']), n(l['y']), n(l['ancho']), n(l['alto'])),
-          ),
-      ],
+      // En orden de lectura, renglón por renglón (si no hay líneas, el del lector).
+      texto: lineas.isEmpty ? r['texto'] as String? ?? '' : textoEnOrden(lineas),
+      lineas: lineas,
     );
   }
 }

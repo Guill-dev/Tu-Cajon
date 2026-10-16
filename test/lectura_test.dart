@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -160,6 +162,77 @@ void main() {
     });
   });
 
+  group('Leer mejor', () {
+    LineaLeida linea(
+      String texto,
+      double x,
+      double y, {
+      double ancho = 200,
+      double alto = 30,
+      double angulo = 0,
+    }) => LineaLeida(texto, Rect.fromLTWH(x, y, ancho, alto), angulo: angulo);
+
+    test('Cada etiqueta queda junto a su valor: se lee por renglones', () {
+      // El lector los entrega por bloques: primero las etiquetas, después los valores.
+      final lineas = [
+        linea('RECIBO DE LA LUZ', 40, 20, ancho: 400, alto: 50),
+        linea('TOTAL A PAGAR', 40, 120),
+        linea('PAGO OPORTUNO', 40, 180),
+        linea(r'$ 120.000', 400, 122),
+        linea('15/10/2026', 400, 178),
+      ];
+      expect(textoEnOrden(lineas), 'RECIBO DE LA LUZ\nTOTAL A PAGAR \$ 120.000\nPAGO OPORTUNO 15/10/2026');
+    });
+
+    test('Aunque la foto esté torcida, los renglones no se mezclan', () {
+      // Inclinada 6°: a la derecha, cada línea baja unos 37 px.
+      const grados = 6.0;
+      final baja = math.tan(grados * math.pi / 180);
+      LineaLeida inclinada(String t, double x, double y) =>
+          linea(t, x, y + x * baja, ancho: 160, alto: 28, angulo: grados);
+      final lineas = [
+        inclinada('Nombre', 40, 100),
+        inclinada('Fecha', 40, 150),
+        inclinada('ANA PÉREZ', 400, 100),
+        inclinada('12/03/1985', 400, 150),
+      ];
+      expect(textoEnOrden(lineas), 'Nombre ANA PÉREZ\nFecha 12/03/1985');
+    });
+
+    test('Corrige lo que el lector suele confundir', () {
+      expect(
+        Interprete.corregirLectura('fecha de venc1miento 25/1o/2o30'),
+        'fecha de vencimiento 25/10/2030',
+      );
+      expect(Interprete.corregirLectura('licencia de c0nduccion'), 'licencia de conduccion');
+      expect(Interprete.corregirLectura('numero 52.348.9l0'), 'numero 52.348.910');
+      // Lo que está bien no se toca.
+      expect(
+        Interprete.corregirLectura('saber 11 placa abc123 15 oct 2030'),
+        'saber 11 placa abc123 15 oct 2030',
+      );
+    });
+
+    test('Con una foto imperfecta, igual entiende la cédula', () {
+      const leido = '''REPUBLICA DE COLOMBIA
+IDENTIFICACION PERSONAL
+CEDULA DE C1UDADANIA
+NUMERO 52.348.9l0
+FECHA DE EXPEDICION 12-MAR-2003''';
+      final d = Interprete.entender(leido);
+      expect(d.nombre, 'Cédula de ciudadanía');
+      expect(d.numero, '52.348.910');
+    });
+
+    test('Y la fecha de vencimiento de la licencia', () {
+      const leido = '''LICENCIA DE CONDUCCION
+No. 52348910
+FECHA DE VENC1MIENTO 25/1O/2O30''';
+      final d = Interprete.entender(leido);
+      expect(d.venceEn, DateTime(2030, 10, 25));
+    });
+  });
+
   group('Leer documentos', () {
     test('Lee cada foto, junta el texto por páginas y entiende el documento', () async {
       final lector = LectorSimulado(textos: [cedulaFrente, cedulaReverso]);
@@ -250,6 +323,28 @@ void main() {
       await cajon.leerPendientes();
       expect(lector.leidas, 2);
       expect((await doc(repo, id)).textoExtraido, isNotEmpty);
+    });
+
+    test('Cuando la lectura mejora, vuelve a leer una vez los que ya tenían texto', () async {
+      final repo = MemoriaCajonRepositorio(ejemplo: false);
+      final id = await guardarSinTexto(repo, 'Mi licencia');
+      await repo.guardarTexto(id, 'LICENCIA DE C0NDUCC1ON leida con la version de antes');
+      final lector = LectorSimulado(textos: [licencia]);
+      final cajon = LectorDelCajon(
+        repo: repo,
+        lectura: LecturaDeDocumentos(lector: lector),
+        espera: const Duration(days: 1),
+      );
+      addTearDown(cajon.dispose);
+
+      await cajon.leerPendientes();
+      expect(lector.leidas, 1);
+      expect((await doc(repo, id)).textoExtraido, contains('52348910'));
+      expect(await repo.leerAjuste('lectura.version'), '${LectorDelCajon.versionDelLector}');
+
+      // Ya está al día: no se vuelve a leer.
+      await cajon.leerPendientes();
+      expect(lector.leidas, 1);
     });
 
     test('Una foto sin letras se intenta una vez y no se insiste', () async {

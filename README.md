@@ -352,7 +352,8 @@ página por página, mientras la persona revisa los datos. Con eso:
   "Ver todo el texto" (`features/texto/`), página por página, seleccionable.
 - **Lo ya guardado:** `LectorDelCajon` lee en segundo plano, uno por uno, los documentos que aún
   no tienen texto (cada uno se intenta una vez, y otra si cambian sus páginas). En el detalle
-  también está "Leer ahora".
+  también está "Leer ahora". Cuando la lectura mejora (`versionDelLector`), vuelve a leer una vez
+  los que ya tenían texto, para que todos queden al día.
 
 ```
 Fotos o PDF ──▶ LecturaDeDocumentos ──▶ LectorDeTexto (canal tu_cajon/leer → LectorDeTexto.kt, ML Kit)
@@ -361,9 +362,18 @@ Fotos o PDF ──▶ LecturaDeDocumentos ──▶ LectorDeTexto (canal tu_cajo
 
 - **Leer** (`core/lectura/`, `LectorDeTexto.kt`): reconocimiento de texto de **ML Kit** de Google,
   con el modelo **dentro de la app** (`com.google.mlkit:text-recognition`). Funciona sin internet y
-  la imagen se lee en memoria: no sale del celular. Un PDF se dibuja de a 4 páginas (hasta 40).
-  Si la foto casi no tiene letras, se prueba girada.
-- **Entender** (`data/lectura/interprete.dart`): reglas para los papeles de Colombia (cédula,
+  la imagen se lee en memoria: no sale del celular. Un PDF se dibuja de a 4 páginas (hasta 40),
+  a 2000 px de ancho.
+- **Leer mejor:** la letra pequeña se agranda antes de leer (una cédula de lejos o una foto de
+  WhatsApp: el modelo lee mejor si cada letra mide unos 20 px). ML Kit dice qué tan seguro está de
+  cada renglón: si la lectura sale floja, se prueba la foto girada y con la luz pareja (sin
+  sombras, como el filtro "Documento") y se queda la que más y mejor leyó. El texto se arma
+  renglón por renglón, con la foto enderezada (`textoEnOrden`), así cada etiqueta queda junto a
+  su valor ("TOTAL A PAGAR $ 120.000"). En el registro del celular (`TuCajon/Lectura`) queda
+  cuántas letras se leyeron, la confianza y el tiempo de cada página, nunca el texto.
+- **Entender** (`data/lectura/interprete.dart`): primero arregla lo que el lector suele confundir
+  (una cifra en medio de una palabra, "venc1miento"; una letra en medio de un número,
+  "52.348.9l0"). Después, reglas para los papeles de Colombia (cédula,
   tarjeta de identidad, pasaporte, PPT, licencia, SOAT, técnico-mecánica, tarjeta de propiedad,
   RUT, renta, EPS, vacunas, diplomas, Saber 11, pensión, recibos, arriendo, certificados…). Gana
   el tipo que aparece primero (el título va arriba). La fecha de vencimiento es la que el texto

@@ -15,6 +15,9 @@ import 'lectura_de_documentos.dart';
 ///
 /// Cada documento se intenta una sola vez (y otra si se le cambian las
 /// páginas): una foto sin letras no se vuelve a leer cada vez que se abre.
+///
+/// Cuando la app aprende a leer mejor ([versionDelLector]), también vuelve a
+/// leer una vez los que ya tenían texto, para que todos queden al día.
 class LectorDelCajon {
   LectorDelCajon({required this.repo, required this.lectura, this.espera = const Duration(seconds: 8)}) {
     _cambios = repo.vigilarTodos().listen(_programar);
@@ -29,6 +32,18 @@ class LectorDelCajon {
 
   static const _claveIntentados = 'lectura.intentados';
 
+  /// Sube cada vez que la lectura mejora: los documentos leídos con una
+  /// versión anterior se vuelven a leer (una vez).
+  static const versionDelLector = 2;
+  static const _claveVersion = 'lectura.version';
+
+  /// Los que ya se volvieron a leer con esta versión (por si la app se
+  /// cierra a mitad de camino).
+  static const _claveReleidos = 'lectura.releidos';
+
+  /// `true` cuando ya se sabe que todos se leyeron con esta versión.
+  bool _alDia = false;
+
   late final StreamSubscription<List<Documento>> _cambios;
   Timer? _temporizador;
   bool _leyendo = false;
@@ -36,17 +51,21 @@ class LectorDelCajon {
 
   static bool _faltaLeer(Documento d) => d.archivo != null && d.textoExtraido.trim().isEmpty;
 
+  /// Ya tiene texto, pero de una versión anterior del lector.
+  static bool _paraReleer(Documento d) => d.archivo != null && d.textoExtraido.trim().isNotEmpty;
+
   /// La versión de las páginas: al reemplazarlas cambia la fecha de guardado.
   static String _clave(Documento d) => '${d.id}@${d.guardadoEn.millisecondsSinceEpoch}';
 
   void _programar(List<Documento> documentos) {
-    if (_cerrado || !lectura.disponible || !documentos.any(_faltaLeer)) return;
+    if (_cerrado || !lectura.disponible) return;
+    if (!documentos.any(_faltaLeer) && (_alDia || !documentos.any(_paraReleer))) return;
     _temporizador?.cancel();
     _temporizador = Timer(espera, leerPendientes);
   }
 
-  Future<Set<String>> _intentados() async {
-    final guardado = await repo.leerAjuste(_claveIntentados);
+  Future<Set<String>> _conjunto(String clave) async {
+    final guardado = await repo.leerAjuste(clave);
     if (guardado == null) return {};
     try {
       return {...(jsonDecode(guardado) as List<Object?>).cast<String>()};
@@ -60,17 +79,33 @@ class LectorDelCajon {
     if (_leyendo || _cerrado) return;
     _leyendo = true;
     try {
-      final intentados = await _intentados();
+      final intentados = await _conjunto(_claveIntentados);
+      final version = int.tryParse(await repo.leerAjuste(_claveVersion) ?? '') ?? 1;
+      final releer = version < versionDelLector;
+      final releidos = releer ? await _conjunto(_claveReleidos) : <String>{};
       while (!_cerrado) {
         final documentos = await repo.vigilarTodos().first;
-        final siguiente = documentos
-            .where((d) => _faltaLeer(d) && !intentados.contains(_clave(d)))
-            .firstOrNull;
-        if (siguiente == null) break;
-        intentados.add(_clave(siguiente));
+        // Primero los que no tienen texto; después, los de una versión anterior.
+        final siguiente =
+            documentos.where((d) => _faltaLeer(d) && !intentados.contains(_clave(d))).firstOrNull ??
+            (releer
+                ? documentos.where((d) => _paraReleer(d) && !releidos.contains(_clave(d))).firstOrNull
+                : null);
+        if (siguiente == null) {
+          if (releer) {
+            await repo.guardarAjuste(_claveVersion, '$versionDelLector');
+            await repo.guardarAjuste(_claveReleidos, null);
+          }
+          _alDia = true;
+          break;
+        }
+        // Leído ahora, ya queda con esta versión: no se vuelve a leer en esta vuelta.
+        if (siguiente.textoExtraido.trim().isEmpty) intentados.add(_clave(siguiente));
+        releidos.add(_clave(siguiente));
         try {
           final leido = await lectura.releer(repo, siguiente);
           if (_cerrado) break;
+          // Si esta vez no salió nada, se queda con lo que ya tenía.
           if (leido.conTexto) await repo.guardarTexto(siguiente.id, leido.texto);
         } on LecturaNoDisponible {
           break;
@@ -80,6 +115,9 @@ class LectorDelCajon {
         // Solo los que siguen en el cajón (los borrados no se guardan para siempre).
         final vigentes = {for (final d in documentos) _clave(d)};
         await repo.guardarAjuste(_claveIntentados, jsonEncode(intentados.where(vigentes.contains).toList()));
+        if (releer) {
+          await repo.guardarAjuste(_claveReleidos, jsonEncode(releidos.where(vigentes.contains).toList()));
+        }
       }
     } finally {
       _leyendo = false;
