@@ -254,7 +254,7 @@ propia cuenta de Google de la persona, solo para una carpeta oculta de la app en
 
 ```
 Ajustes / Recuperar ──context.copia──▶ CopiaDeSeguridad (data/copia/)
-                                         ├─ Nube: NubeDePrueba hoy · Google Drive después
+                                         ├─ Nube: NubeDrive (Google Drive) · NubeDePrueba
                                          ├─ LlavesDeCopia: almacén seguro + Block Store
                                          └─ Red: ¿hay Wi-Fi?
 ```
@@ -267,9 +267,18 @@ Ajustes / Recuperar ──context.copia──▶ CopiaDeSeguridad (data/copia/)
 - **Solo sube lo nuevo:** si un documento no cambió, su archivo ya está en la nube. Primero se
   suben los archivos, después el índice y al final se borra lo que ya no se usa, así la copia
   de la nube siempre está completa.
-- **Se hace sola** (`ProgramadorDeCopias`): 20 segundos después del último cambio, y al abrir
-  la app si la última tiene más de un día. "Solo con Wi-Fi" (activado de entrada) hace que la
-  automática espere el Wi-Fi; "Hacer copia ahora" no espera.
+- **Cada cuánto** (Ajustes): cada día, cada semana, cada mes o a mano. Cuenta desde la fecha y
+  hora en que se eligió (al conectar, cada día desde ese momento): si se eligió "cada semana" el
+  martes a las 8:30 p. m., la copia es cada martes a las 8:30 p. m. (`frecuencia_copia.dart`; un
+  mes sin ese día usa su último día). Ajustes muestra cuándo es la próxima.
+- **A esa hora, aunque la app esté cerrada** (`copia_en_segundo_plano.dart`): WorkManager de
+  Android despierta a la app (también después de reiniciar el celular), abre el cajón, hace la
+  copia y deja programada la siguiente. Con "Solo con Wi-Fi" (activado de entrada) Android espera
+  a tener Wi-Fi. Puede correrla unos minutos después, para cuidar la batería. Si falla, se
+  vuelve a intentar en media hora. El permiso de Google se pide sin mostrar nada, con la cuenta
+  que ya estaba conectada.
+- **Al abrir la app** (`ProgramadorDeCopias`): si a una copia ya le tocó y no se hizo (el celular
+  estaba apagado o sin internet), se hace de una vez. "Hacer copia ahora" no espera el Wi-Fi.
 - **Sin contraseñas:** la llave de la copia se guarda en **Block Store** de Google
   (`CopiaDeSeguridad.kt`), protegida con el PIN, patrón o contraseña de bloqueo del celular,
   de extremo a extremo. Al estrenar celular y restaurar la cuenta de Google, la llave llega
@@ -280,11 +289,17 @@ Ajustes / Recuperar ──context.copia──▶ CopiaDeSeguridad (data/copia/)
 - **Recuperar** (bienvenida → "¿Ya tenías Tu Cajón…?"): busca la copia, la abre con la llave
   o con el código, y cambia todo el cajón por el de la copia (`restaurar` en el repositorio:
   todo o nada). Después sigue a la llave del cajón de ese celular.
-- **Modo de prueba (hoy):** mientras no esté el proyecto de Google Cloud, la "nube" es una
-  carpeta dentro del mismo celular (`nube_de_prueba/`, en la carpeta privada de la app). Todo
-  lo demás es igual a como será con Drive. Para conectar Drive falta: el proyecto en Google
-  Cloud con la API de Drive, la pantalla de permiso, la firma propia de la app y el permiso de
-  internet.
+- **Google Drive** (`data/copia/nube_drive.dart`): habla con la API de Drive v3 directo, en la
+  carpeta oculta de la app (`appDataFolder`), con subidas reanudables (sirven para archivos
+  grandes). El permiso es solo `drive.appdata` (`core/copia/cuenta_google.dart`, con
+  `google_sign_in`): la app no puede ver ningún otro archivo del Drive. Si el permiso vence, lo
+  renueva solo; si Google lo quitó, pide conectar otra vez.
+- **Configuración en Google Cloud:** proyecto con la API de Google Drive, pantalla de permiso
+  (Google Auth Platform) con el permiso `drive.appdata`, un cliente **Android** (paquete
+  `com.tucajon.tu_cajon` + la huella SHA-1 de la firma de la app) y un cliente **web**, cuyo ID
+  va en `clienteWebDeGoogle` (`core/copia/cuenta_google.dart`). Mientras ese ID esté vacío (y en
+  la vista web), la copia se prueba en una carpeta dentro del mismo celular (`NubeDePrueba`).
+  Al pasar a Drive, una copia que estaba conectada en modo de prueba queda por conectar.
 
 ---
 
@@ -294,7 +309,6 @@ Ajustes / Recuperar ──context.copia──▶ CopiaDeSeguridad (data/copia/)
 |---|---|
 | El chat usa búsqueda + reglas (`preguntar/respuestas_demo.dart`) sobre el texto leído | Modelo de IA local sobre tus documentos |
 | Leer documentos solo en Android | En iPhone, con el reconocimiento de texto del sistema (Vision) |
-| La copia de seguridad se guarda en una carpeta del mismo celular (modo de prueba) | Google Drive: carpeta oculta de la app, con un proyecto de Google Cloud |
 | "Compartir → Tu Cajón" solo en Android | En iPhone hace falta una extensión aparte (Share Extension) |
 
 Ya funcionan de verdad: la llave del cajón (huella, rostro, PIN o patrón del celular, con `local_auth`), que se vuelve a pedir cada vez que se sale de la app (`core/seguridad/cerrojo.dart`), los avisos de vencimiento (notificaciones del celular 30 días antes, 7 días antes y el mismo día a las 9 a. m., y "Recordarme el lunes"; se programan en el celular sin internet, sobreviven a un reinicio y al tocarlos abren el documento después de la llave: `core/avisos/` y `features/avisos/avisos_programados.dart`, con `flutter_local_notifications`), editar un documento guardado (sus datos en Guardar, o sus páginas con las herramientas de siempre en `features/paginas/`, guardando en el mismo lugar sin volver a preguntar), reemplazar las páginas de un documento, la cámara (con
@@ -380,9 +394,9 @@ Fotos o PDF ──▶ LecturaDeDocumentos ──▶ LectorDeTexto (canal tu_cajo
   marca ("vence", "vigencia", "hasta", "expiry"); en pasaporte, licencia y SOAT, si no lo dice,
   la más lejana que no sea de nacimiento o expedición. Si no reconoce el tipo, propone el título
   (la letra más grande de arriba).
-- **Sin internet:** ML Kit trae el permiso de internet solo para mandarle a Google estadísticas de
-  uso. En `AndroidManifest.xml` se quitan el permiso y el destino de esas estadísticas. Cuando se
-  conecte Google Drive habrá que volver a permitir internet; las estadísticas siguen apagadas.
+- **Sin internet:** la lectura no usa internet (el modelo viene en la app). ML Kit trae el envío
+  de estadísticas de uso a Google: en `AndroidManifest.xml` se quita su destino, así que nunca se
+  envían. El permiso de internet de la app es solo para la copia en Google Drive.
 - **Tamaño:** el modelo suma unos 11 MB por tipo de procesador. La APK de prueba trae los tres
   (98 MB); desde la Play Store, cada celular descarga solo el suyo.
 

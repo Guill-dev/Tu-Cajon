@@ -29,10 +29,13 @@ class NubeDePrueba implements Nube {
   bool get deprueba => true;
 
   @override
-  Future<String> conectar() async => 'Modo de prueba';
+  Future<String> conectar() async => cuentaDePrueba;
 
   @override
   Future<void> desconectar() async {}
+
+  @override
+  void recordarCuenta(String? correo) {}
 
   @override
   Future<List<ArchivoEnNube>> listar() async {

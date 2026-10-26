@@ -8,7 +8,9 @@ import '../../core/copia/red.dart';
 import '../models/contenido_cajon.dart';
 import '../models/documento.dart';
 import '../repositorio/cajon_repositorio.dart';
+import 'agenda_de_copias.dart';
 import 'cifrado_copia.dart';
+import 'frecuencia_copia.dart';
 import 'indice_copia.dart';
 import 'nube.dart';
 
@@ -27,6 +29,8 @@ class EstadoCopia {
     this.esperandoWifi = false,
     this.soloWifi = true,
     this.codigoCreado,
+    this.frecuencia = FrecuenciaCopia.diaria,
+    this.desde,
   });
 
   /// La cuenta conectada; `null` = sin conectar.
@@ -52,7 +56,30 @@ class EstadoCopia {
   /// Cuándo se creó el código de emergencia; `null` = no hay.
   final DateTime? codigoCreado;
 
+  /// Cada cuánto se hace sola, contando desde [desde] (cuando se eligió).
+  final FrecuenciaCopia frecuencia;
+  final DateTime? desde;
+
   bool get conectada => cuenta != null;
+
+  /// Si ya le tocó una copia programada que todavía no se hizo (a esa hora
+  /// el celular estaba apagado, sin internet o esperando el Wi-Fi).
+  bool tocaCopia(DateTime ahora) {
+    final d = desde;
+    if (!conectada || d == null) return false;
+    final debida = frecuencia.ultimaVez(d, ahora);
+    final u = ultima;
+    return debida != null && (u == null || u.isBefore(debida));
+  }
+
+  /// Cuándo se hará la próxima copia sola (`null`: a mano o sin conectar).
+  /// Si ya le tocó una, es [ahora].
+  DateTime? proxima(DateTime ahora) {
+    final d = desde;
+    if (!conectada || d == null || frecuencia == FrecuenciaCopia.manual) return null;
+    if (tocaCopia(ahora)) return ahora;
+    return frecuencia.siguienteVez(d, ahora);
+  }
 
   EstadoCopia copyWith({
     String? cuenta,
@@ -69,6 +96,8 @@ class EstadoCopia {
     bool? esperandoWifi,
     bool? soloWifi,
     DateTime? codigoCreado,
+    FrecuenciaCopia? frecuencia,
+    DateTime? desde,
   }) => EstadoCopia(
     cuenta: quitarCuenta ? null : (cuenta ?? this.cuenta),
     ultima: quitarUltima ? null : (ultima ?? this.ultima),
@@ -81,6 +110,8 @@ class EstadoCopia {
     esperandoWifi: esperandoWifi ?? this.esperandoWifi,
     soloWifi: soloWifi ?? this.soloWifi,
     codigoCreado: codigoCreado ?? this.codigoCreado,
+    frecuencia: frecuencia ?? this.frecuencia,
+    desde: desde ?? this.desde,
   );
 }
 
@@ -121,8 +152,10 @@ class CopiaDeSeguridad {
     required this.nube,
     required this.llaves,
     required this.red,
+    AgendaDeCopias? agenda,
     DateTime Function()? reloj,
-  }) : _reloj = reloj ?? DateTime.now;
+  }) : agenda = agenda ?? AgendaSimulada(),
+       _reloj = reloj ?? DateTime.now;
 
   /// Para pruebas y la vista web: todo en memoria.
   factory CopiaDeSeguridad.simulada(CajonRepositorio repo) =>
@@ -132,6 +165,9 @@ class CopiaDeSeguridad {
   final Nube nube;
   final LlavesDeCopia llaves;
   final Red red;
+
+  /// Despierta a la app a la hora de la próxima copia, aunque esté cerrada.
+  final AgendaDeCopias agenda;
   final DateTime Function() _reloj;
 
   final estado = ValueNotifier(const EstadoCopia());
@@ -155,10 +191,33 @@ class CopiaDeSeguridad {
   static const _aSoloWifi = 'copia.solo_wifi';
   static const _aCodigo = 'copia.codigo';
   static const _aHuella = 'copia.huella';
+  static const _aFrecuencia = 'copia.frecuencia';
+  static const _aDesde = 'copia.desde';
 
   late final Future<void> listo = _cargar();
 
+  /// Ahora, en milisegundos (así queda igual al guardarlo y volver a leerlo).
+  DateTime get _ahora => DateTime.fromMillisecondsSinceEpoch(_reloj().millisecondsSinceEpoch);
+
   Future<void> _cargar() async {
+    // La copia se había probado dentro del celular y ahora va a Google Drive
+    // de verdad: queda sin conectar, para conectar la cuenta de Google (y el
+    // código de emergencia de la prueba no está en Drive: se crea otro).
+    if (!nube.deprueba && await repo.leerAjuste(_aCuenta) == cuentaDePrueba) {
+      for (final clave in [_aCuenta, _aUltima, _aDocumentos, _aBytes, _aHuella, _aCodigo]) {
+        await repo.guardarAjuste(clave, null);
+      }
+    }
+    await _leerEstado();
+    // Conectada antes de que se pudiera elegir cada cuánto: cada día, desde
+    // la última copia (o desde ahora).
+    final e = estado.value;
+    if (e.conectada && e.desde == null) await _guardarDesde(e.ultima ?? _ahora);
+    nube.recordarCuenta(estado.value.cuenta);
+    await _reprogramar();
+  }
+
+  Future<void> _leerEstado() async {
     DateTime? fecha(String? v) => v == null ? null : DateTime.fromMillisecondsSinceEpoch(int.parse(v));
     estado.value = EstadoCopia(
       cuenta: await repo.leerAjuste(_aCuenta),
@@ -167,7 +226,64 @@ class CopiaDeSeguridad {
       bytes: int.tryParse(await repo.leerAjuste(_aBytes) ?? '') ?? 0,
       soloWifi: await repo.leerAjuste(_aSoloWifi) != 'no',
       codigoCreado: fecha(await repo.leerAjuste(_aCodigo)),
+      frecuencia: FrecuenciaCopia.deTexto(await repo.leerAjuste(_aFrecuencia)),
+      desde: fecha(await repo.leerAjuste(_aDesde)),
     );
+  }
+
+  /// Vuelve a leer cómo va (la copia programada pudo hacerse con la app en
+  /// segundo plano).
+  Future<void> recargar() async {
+    await listo;
+    if (estado.value.haciendo) return;
+    final problema = estado.value.problema;
+    await _leerEstado();
+    if (problema != null) _poner(estado.value.copyWith(problema: problema));
+  }
+
+  Future<void> _guardarDesde(DateTime desde) async {
+    await repo.guardarAjuste(_aDesde, '${desde.millisecondsSinceEpoch}');
+    _poner(estado.value.copyWith(desde: desde));
+  }
+
+  /// Le pide a Android que despierte a la app para la próxima copia (o que
+  /// no la despierte, si es a mano o no hay cuenta). Si la que tocaba falló,
+  /// se vuelve a intentar en media hora.
+  Future<void> _reprogramar({bool trasFallo = false}) async {
+    final ahora = _ahora;
+    final e = estado.value;
+    var cuando = e.proxima(ahora);
+    try {
+      if (cuando == null) {
+        await agenda.cancelar();
+        return;
+      }
+      if (trasFallo && !cuando.isAfter(ahora)) cuando = ahora.add(const Duration(minutes: 30));
+      await agenda.programar(cuando, soloWifi: e.soloWifi);
+    } catch (error) {
+      // Sin agenda (p. ej. en pruebas sin el plugin): la copia se hará al abrir la app.
+      debugPrint('No se pudo programar la copia: $error');
+    }
+  }
+
+  /// Si ya le tocó una copia programada, la hace (al abrir la app).
+  Future<void> siToca() async {
+    await listo;
+    if (estado.value.tocaCopia(_ahora)) await hacerCopia(automatica: true);
+  }
+
+  /// Cada cuánto se hace sola. Cuenta desde ahora: la primera es ya mismo y
+  /// las siguientes, a esta misma hora cada día, semana o mes.
+  Future<void> cambiarFrecuencia(FrecuenciaCopia frecuencia) async {
+    await listo;
+    await repo.guardarAjuste(_aFrecuencia, frecuencia == FrecuenciaCopia.diaria ? null : frecuencia.name);
+    _poner(estado.value.copyWith(frecuencia: frecuencia));
+    await _guardarDesde(_ahora);
+    if (frecuencia == FrecuenciaCopia.manual) {
+      await _reprogramar();
+    } else {
+      await hacerCopia(automatica: true);
+    }
   }
 
   void _poner(EstadoCopia nuevo) => estado.value = nuevo;
@@ -175,6 +291,10 @@ class CopiaDeSeguridad {
   Future<void> _guardarCuenta(String cuenta) async {
     await repo.guardarAjuste(_aCuenta, cuenta);
     _poner(estado.value.copyWith(cuenta: cuenta, quitarProblema: true));
+    nube.recordarCuenta(cuenta);
+    // Al conectar, cuenta desde ahora (cada día, si no se eligió otra cosa).
+    await _guardarDesde(_ahora);
+    await _reprogramar();
   }
 
   Future<Uint8List> _llaveOCrear() async {
@@ -241,15 +361,23 @@ class CopiaDeSeguridad {
   Future<void> desconectar() async {
     await nube.desconectar();
     _cuentaPendiente = null;
-    for (final clave in [_aCuenta, _aUltima, _aDocumentos, _aBytes, _aHuella]) {
+    for (final clave in [_aCuenta, _aUltima, _aDocumentos, _aBytes, _aHuella, _aDesde]) {
       await repo.guardarAjuste(clave, null);
     }
-    _poner(EstadoCopia(soloWifi: estado.value.soloWifi, codigoCreado: estado.value.codigoCreado));
+    _poner(
+      EstadoCopia(
+        soloWifi: estado.value.soloWifi,
+        codigoCreado: estado.value.codigoCreado,
+        frecuencia: estado.value.frecuencia,
+      ),
+    );
+    await _reprogramar();
   }
 
   Future<void> cambiarSoloWifi(bool soloWifi) async {
     await repo.guardarAjuste(_aSoloWifi, soloWifi ? null : 'no');
     _poner(estado.value.copyWith(soloWifi: soloWifi, esperandoWifi: soloWifi && estado.value.esperandoWifi));
+    await _reprogramar();
   }
 
   // ── Hacer la copia ─────────────────────────────────────────────────────
@@ -265,9 +393,19 @@ class CopiaDeSeguridad {
     await listo;
     if (!estado.value.conectada) return;
     if (automatica && estado.value.soloWifi && !await red.sinLimiteDeDatos()) {
+      // Android la hace apenas haya Wi-Fi.
       _poner(estado.value.copyWith(esperandoWifi: true));
+      await _reprogramar();
       return;
     }
+    try {
+      await _subir();
+    } finally {
+      await _reprogramar(trasFallo: estado.value.problema != null);
+    }
+  }
+
+  Future<void> _subir() async {
     _poner(
       estado.value.copyWith(haciendo: true, hechos: 0, total: 0, esperandoWifi: false, quitarProblema: true),
     );

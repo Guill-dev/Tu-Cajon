@@ -191,7 +191,11 @@ class _ListaGarantias extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     const items = [
-      (AppIcons.celular, 'Todo se queda en este celular', 'No subimos tus documentos a internet.'),
+      (
+        AppIcons.celular,
+        'Tus documentos viven en tu celular',
+        'Solo si activas la copia, van cifrados a tu Google Drive: ni Google los puede abrir.',
+      ),
       (AppIcons.escudo, 'Blindado por dentro', 'Tus archivos quedan cifrados en la memoria del teléfono.'),
       (AppIcons.sinRegistro, 'Sin registro', 'No te pedimos correo, número ni contraseña nueva.'),
     ];

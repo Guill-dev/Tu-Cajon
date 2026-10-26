@@ -18,6 +18,11 @@ import 'package:tu_cajon/core/router/app_routes.dart';
 import 'package:tu_cajon/core/theme/app_theme.dart';
 import 'package:tu_cajon/core/seguridad/llave_celular.dart';
 import 'package:tu_cajon/data/datos_ejemplo.dart';
+import 'package:tu_cajon/core/copia/red.dart';
+import 'package:tu_cajon/core/copia/llaves_de_copia.dart';
+import 'package:tu_cajon/data/copia/nube.dart';
+import 'package:tu_cajon/data/copia/frecuencia_copia.dart';
+import 'package:tu_cajon/data/copia/copia_de_seguridad.dart';
 import 'package:tu_cajon/data/models/perfil.dart';
 import 'package:tu_cajon/data/repositorio/memoria_repositorio.dart';
 import 'package:tu_cajon/features/cajon/cajon_shell.dart';
@@ -347,6 +352,43 @@ void main() {
     await _capturar(tester, 'inicio_con_foto');
     await tester.pump(const Duration(seconds: 5));
   });
+
+  for (final noche in [false, true]) {
+    testWidgets('Captura: Ajustes con Google Drive conectado${noche ? ' (de noche)' : ''}', (tester) async {
+      if (noche) {
+        tester.platformDispatcher.platformBrightnessTestValue = Brightness.dark;
+        addTearDown(tester.platformDispatcher.clearPlatformBrightnessTestValue);
+      }
+      final repo = MemoriaCajonRepositorio();
+      final copia = CopiaDeSeguridad(
+        repo: repo,
+        nube: NubeEnMemoria(),
+        llaves: LlavesSimuladas(),
+        red: RedSimulada(),
+      );
+      await tester.runAsync(() async {
+        await copia.conectar();
+        await copia.hacerCopia();
+        await copia.cambiarFrecuencia(FrecuenciaCopia.semanal);
+      });
+      tester.view.physicalSize = const Size(1170, 2532);
+      tester.view.devicePixelRatio = 3;
+      tester.view.padding = const FakeViewPadding(top: 120, bottom: 60);
+      tester.view.viewPadding = const FakeViewPadding(top: 120, bottom: 60);
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        RepaintBoundary(
+          key: _marco,
+          child: TuCajonApp(repo: repo, llave: LlaveSimulada(), copia: copia, rutaInicial: AppRoutes.ajustes),
+        ),
+      );
+      await tester.pump(const Duration(seconds: 1));
+      await tester.drag(find.byType(Scrollable).last, const Offset(0, -420));
+      await tester.pump(const Duration(milliseconds: 500));
+      await _capturar(tester, noche ? 'ajustes_copia_noche' : 'ajustes_copia');
+      await tester.pump(const Duration(seconds: 5));
+    });
+  }
 
   testWidgets('Captura: buscar', (tester) async {
     await _abrir(tester, AppRoutes.cajon, args: CajonTab.inicio);

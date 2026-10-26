@@ -1,5 +1,8 @@
 import 'dart:typed_data';
 
+/// La "cuenta" de `NubeDePrueba` (la copia dentro del mismo celular).
+const cuentaDePrueba = 'Modo de prueba';
+
 /// Un archivo guardado en la nube.
 class ArchivoEnNube {
   const ArchivoEnNube({required this.nombre, required this.bytes, required this.modificado});
@@ -37,11 +40,16 @@ class ConexionCancelada extends ProblemaNube {
   const ConexionCancelada() : super('No se conectó ninguna cuenta.');
 }
 
-/// Dónde vive la copia de seguridad. Hoy: [NubeEnMemoria] (pruebas) y
-/// `NubeDePrueba` (una carpeta dentro del mismo celular). Cuando se
-/// configure Google, se agrega la de Google Drive con esta misma forma: una
-/// carpeta oculta de la app en el Drive de la persona, que la app no usa
-/// para ver ningún otro archivo.
+/// Google respondió con un error que no es de los anteriores (o la app no
+/// está bien registrada en Google).
+class FalloDeLaNube extends ProblemaNube {
+  const FalloDeLaNube() : super('Google Drive no respondió bien. Se intentará de nuevo más tarde.');
+}
+
+/// Dónde vive la copia de seguridad: `NubeDrive` (una carpeta oculta de la
+/// app en el Google Drive de la persona, que la app no usa para ver ningún
+/// otro archivo), `NubeDePrueba` (una carpeta dentro del mismo celular,
+/// mientras Google no esté configurado) y [NubeEnMemoria] (pruebas).
 abstract interface class Nube {
   /// `true` mientras no sea Google Drive de verdad.
   bool get deprueba;
@@ -51,6 +59,10 @@ abstract interface class Nube {
   Future<String> conectar();
 
   Future<void> desconectar();
+
+  /// La cuenta que ya estaba conectada (se guarda en los ajustes): así se
+  /// puede pedir el permiso sin mostrar nada, también con la app cerrada.
+  void recordarCuenta(String? correo);
 
   Future<List<ArchivoEnNube>> listar();
 
@@ -103,6 +115,9 @@ class NubeEnMemoria implements Nube {
 
   @override
   Future<void> desconectar() async => conectada = false;
+
+  @override
+  void recordarCuenta(String? correo) {}
 
   @override
   Future<List<ArchivoEnNube>> listar() async {

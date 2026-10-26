@@ -139,7 +139,7 @@ class _CargaScreenState extends State<CargaScreen> {
                               spacing: 10,
                               runSpacing: 10,
                               children: [
-                                _Dato(fuerte: '100%', suave: 'en tu celular'),
+                                _Dato(fuerte: 'Cifrado', suave: 'en tu celular'),
                                 _Dato(fuerte: 'Sin', suave: 'registro'),
                               ],
                             ),

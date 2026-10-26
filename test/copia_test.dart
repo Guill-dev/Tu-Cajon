@@ -6,6 +6,8 @@ import 'package:tu_cajon/core/copia/llaves_de_copia.dart';
 import 'package:tu_cajon/core/copia/red.dart';
 import 'package:tu_cajon/data/copia/cifrado_copia.dart';
 import 'package:tu_cajon/data/copia/copia_de_seguridad.dart';
+import 'package:tu_cajon/data/copia/frecuencia_copia.dart';
+import 'package:tu_cajon/data/copia/agenda_de_copias.dart';
 import 'package:tu_cajon/data/copia/nube.dart';
 import 'package:tu_cajon/data/copia/programador_de_copias.dart';
 import 'package:tu_cajon/data/models/categoria.dart';
@@ -17,17 +19,30 @@ Uint8List bytes(List<int> v) => Uint8List.fromList(v);
 
 /// Un "celular": su cajón, sus llaves y su red, con la nube compartida.
 class Celular {
-  Celular(this.nube, {LlavesSimuladas? llaves, bool ejemplo = true, RedSimulada? red})
-    : repo = MemoriaCajonRepositorio(ejemplo: ejemplo),
-      llaves = llaves ?? LlavesSimuladas(),
-      red = red ?? RedSimulada() {
-    copia = CopiaDeSeguridad(repo: repo, nube: nube, llaves: this.llaves, red: this.red);
+  Celular(
+    this.nube, {
+    LlavesSimuladas? llaves,
+    bool ejemplo = true,
+    RedSimulada? red,
+    DateTime Function()? reloj,
+  }) : repo = MemoriaCajonRepositorio(ejemplo: ejemplo),
+       llaves = llaves ?? LlavesSimuladas(),
+       red = red ?? RedSimulada() {
+    copia = CopiaDeSeguridad(
+      repo: repo,
+      nube: nube,
+      llaves: this.llaves,
+      red: this.red,
+      agenda: agenda,
+      reloj: reloj,
+    );
   }
 
   final NubeEnMemoria nube;
   final MemoriaCajonRepositorio repo;
   final LlavesSimuladas llaves;
   final RedSimulada red;
+  final agenda = AgendaSimulada();
   late final CopiaDeSeguridad copia;
 
   Future<String> guardar(String nombre, List<Uint8List> paginas) async {
@@ -398,45 +413,144 @@ void main() {
     });
   });
 
-  group('Programador', () {
-    // Todo en el reloj de la prueba: la copia en memoria solo usa microtareas,
-    // así que cada pump la deja terminada.
-    testWidgets('hace la copia sola un rato después de un cambio', (tester) async {
-      final a = Celular(NubeEnMemoria());
-      await a.copia.conectar();
-      final programador = ProgramadorDeCopias(
-        copia: a.copia,
-        repo: a.repo,
-        espera: const Duration(seconds: 5),
-      );
-      addTearDown(programador.dispose);
-      await tester.pump();
-      // Recién conectada, sin copia: la programa sola.
-      expect(a.copia.estado.value.ultima, isNull);
-      await tester.pump(const Duration(seconds: 6));
-      await tester.pump();
-      expect(a.copia.estado.value.ultima, isNotNull);
-      a.nube.subidos.clear();
+  group('Cada cuánto', () {
+    test('Las fechas: cada día, semana o mes a la misma hora (el 31 en febrero es el 28)', () {
+      final martes = DateTime(2026, 10, 27, 20, 30);
+      expect(FrecuenciaCopia.diaria.vez(martes, 3), DateTime(2026, 10, 30, 20, 30));
+      expect(FrecuenciaCopia.semanal.vez(martes, 1), DateTime(2026, 11, 3, 20, 30));
+      final fin = DateTime(2027, 1, 31, 9, 0);
+      expect(FrecuenciaCopia.mensual.vez(fin, 1), DateTime(2027, 2, 28, 9, 0));
+      expect(FrecuenciaCopia.mensual.vez(fin, 2), DateTime(2027, 3, 31, 9, 0));
+      expect(FrecuenciaCopia.mensual.vez(fin, 12), DateTime(2028, 1, 31, 9, 0));
 
-      await a.repo.renombrarDocumento('licencia', 'Licencia nueva');
-      await tester.pump(const Duration(seconds: 2));
-      expect(a.nube.subidos, isEmpty, reason: 'todavía está esperando');
-      await tester.pump(const Duration(seconds: 4));
-      await tester.pump();
+      // La próxima y la última que tocó, vistas desde un momento cualquiera.
+      final ahora = DateTime(2026, 11, 12, 10, 0);
+      expect(FrecuenciaCopia.semanal.ultimaVez(martes, ahora), DateTime(2026, 11, 10, 20, 30));
+      expect(FrecuenciaCopia.semanal.siguienteVez(martes, ahora), DateTime(2026, 11, 17, 20, 30));
+      expect(
+        FrecuenciaCopia.diaria.siguienteVez(martes, DateTime(2026, 10, 27, 20, 30)),
+        DateTime(2026, 10, 28, 20, 30),
+      );
+      expect(FrecuenciaCopia.mensual.ultimaVez(martes, DateTime(2026, 10, 27, 20, 29)), isNull);
+      expect(FrecuenciaCopia.manual.siguienteVez(martes, ahora), isNull);
+    });
+
+    test('Al conectar se hace cada día desde ese momento, y la próxima queda programada', () async {
+      var ahora = DateTime(2026, 10, 25, 20, 30);
+      final a = Celular(NubeEnMemoria(), reloj: () => ahora);
+      await a.copia.conectar();
+      expect(a.copia.estado.value.frecuencia, FrecuenciaCopia.diaria);
+      expect(a.copia.estado.value.desde, ahora);
+      // Todavía no hay copia: le toca ya.
+      expect(a.agenda.programada, ahora);
+
+      await a.copia.hacerCopia(automatica: true);
+      expect(a.agenda.programada, DateTime(2026, 10, 26, 20, 30));
+      expect(a.agenda.soloWifi, isTrue);
+
+      // Mañana a esa hora (con la app abierta o cerrada) toca la siguiente.
+      ahora = DateTime(2026, 10, 26, 20, 31);
+      expect(a.copia.estado.value.tocaCopia(ahora), isTrue);
+    });
+
+    test('Semanal desde el martes a las 8:30 p. m.: la primera es ya y la próxima el otro martes', () async {
+      final ahora = DateTime(2026, 10, 27, 20, 30);
+      final a = Celular(NubeEnMemoria(), reloj: () => ahora);
+      await a.copia.conectar();
+      a.nube.subidos.clear();
+      await a.copia.cambiarFrecuencia(FrecuenciaCopia.semanal);
+      expect(a.nube.subidos, contains(CopiaDeSeguridad.archivoIndice));
+      expect(a.agenda.programada, DateTime(2026, 11, 3, 20, 30));
+      // Se recuerda al volver a abrir la app.
+      final otra = CopiaDeSeguridad(
+        repo: a.repo,
+        nube: a.nube,
+        llaves: a.llaves,
+        red: a.red,
+        reloj: () => ahora,
+      );
+      await otra.listo;
+      expect(otra.estado.value.frecuencia, FrecuenciaCopia.semanal);
+      expect(otra.estado.value.proxima(ahora), DateTime(2026, 11, 3, 20, 30));
+    });
+
+    test('A mano: no se programa nada y solo copia "Hacer copia ahora"', () async {
+      final ahora = DateTime(2026, 10, 27, 20, 30);
+      final a = Celular(NubeEnMemoria(), reloj: () => ahora);
+      await a.copia.conectar();
+      a.nube.subidos.clear();
+      await a.copia.cambiarFrecuencia(FrecuenciaCopia.manual);
+      expect(a.agenda.programada, isNull);
+      expect(a.nube.subidos, isEmpty);
+      await a.copia.siToca();
+      expect(a.nube.subidos, isEmpty);
+      await a.copia.hacerCopia();
       expect(a.nube.subidos, contains(CopiaDeSeguridad.archivoIndice));
     });
 
-    testWidgets('sin cuenta conectada no programa nada', (tester) async {
-      final a = Celular(NubeEnMemoria());
-      final programador = ProgramadorDeCopias(
-        copia: a.copia,
-        repo: a.repo,
-        espera: const Duration(seconds: 1),
-      );
-      addTearDown(programador.dispose);
-      await a.repo.renombrarDocumento('licencia', 'Otra');
-      await tester.pump(const Duration(seconds: 3));
+    test('Si a esa hora el celular estaba apagado, la hace apenas se abre la app', () async {
+      var ahora = DateTime(2026, 10, 25, 20, 30);
+      final a = Celular(NubeEnMemoria(), reloj: () => ahora);
+      await a.copia.conectar();
+      await a.copia.hacerCopia(automatica: true);
+
+      ahora = DateTime(2026, 10, 28, 9, 0); // tres días después
+      await a.copia.siToca();
+      // (Nada cambió: no hay que subir nada nuevo, pero la copia queda al día.)
+      expect(a.copia.estado.value.ultima, ahora);
+      // Y sigue a su hora de siempre.
+      expect(a.agenda.programada, DateTime(2026, 10, 28, 20, 30));
+    });
+
+    test('Sin Wi-Fi espera: Android la hace apenas haya Wi-Fi', () async {
+      final ahora = DateTime(2026, 10, 25, 20, 30);
+      final a = Celular(NubeEnMemoria(), reloj: () => ahora, red: RedSimulada(wifi: false));
+      await a.copia.conectar();
+      await a.copia.hacerCopia(automatica: true);
+      expect(a.copia.estado.value.esperandoWifi, isTrue);
       expect(a.nube.archivos, isEmpty);
+      expect((a.agenda.programada, a.agenda.soloWifi), (ahora, true));
+    });
+
+    test('Si falla, lo vuelve a intentar en media hora; al desconectar no queda nada programado', () async {
+      final ahora = DateTime(2026, 10, 25, 20, 30);
+      final a = Celular(NubeEnMemoria(), reloj: () => ahora);
+      await a.copia.conectar();
+      a.nube.fallarCon = const SinConexion();
+      await a.copia.hacerCopia(automatica: true);
+      expect(a.copia.estado.value.problema, isNotNull);
+      expect(a.agenda.programada, ahora.add(const Duration(minutes: 30)));
+
+      await a.copia.desconectar();
+      expect(a.agenda.programada, isNull);
+    });
+
+    testWidgets('Al abrir la app, si le tocaba una copia, la hace', (tester) async {
+      var ahora = DateTime(2026, 10, 25, 20, 30);
+      final a = Celular(NubeEnMemoria(), reloj: () => ahora);
+      await a.copia.conectar();
+      await a.copia.hacerCopia(automatica: true);
+      a.nube.subidos.clear();
+      ahora = DateTime(2026, 10, 27, 8, 0);
+
+      await a.repo.renombrarDocumento('licencia', 'Licencia nueva');
+
+      final programador = ProgramadorDeCopias(copia: a.copia);
+      addTearDown(programador.dispose);
+      await tester.pump();
+      await tester.pump();
+      expect(a.copia.estado.value.ultima, ahora);
+      expect(a.nube.subidos, contains(CopiaDeSeguridad.archivoIndice));
+    });
+
+    testWidgets('Sin cuenta conectada no hace nada', (tester) async {
+      final a = Celular(NubeEnMemoria());
+      final programador = ProgramadorDeCopias(copia: a.copia);
+      addTearDown(programador.dispose);
+      await tester.pump();
+      await tester.pump();
+      expect(a.nube.archivos, isEmpty);
+      expect(a.agenda.programada, isNull);
     });
   });
 }

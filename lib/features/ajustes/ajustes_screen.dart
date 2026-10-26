@@ -10,6 +10,7 @@ import '../../core/theme/app_decor.dart';
 import '../../core/theme/app_text.dart';
 import '../../core/theme/tema_del_celular.dart';
 import '../../data/copia/copia_de_seguridad.dart';
+import '../../data/copia/frecuencia_copia.dart';
 import '../../data/copia/nube.dart';
 import '../../shared/widgets/buttons.dart';
 import '../../shared/widgets/common.dart';
@@ -42,6 +43,8 @@ class _AjustesScreenState extends State<AjustesScreen> with ToastMixin {
   @override
   void initState() {
     super.initState();
+    // Pudo hacerse una copia programada con la app en segundo plano.
+    _copia.recargar();
     _copia.llaveProtegidaConBloqueo().then((p) {
       if (mounted) setState(() => _protegida = p);
     });
@@ -79,6 +82,19 @@ class _AjustesScreenState extends State<AjustesScreen> with ToastMixin {
     } finally {
       if (mounted) setState(() => _conectando = false);
     }
+  }
+
+  /// Cada cuánto: cuenta desde ahora (la primera copia es ya mismo).
+  Future<void> _cambiarFrecuencia(FrecuenciaCopia frecuencia) async {
+    if (frecuencia == _copia.estado.value.frecuencia) return;
+    await _copia.cambiarFrecuencia(frecuencia);
+    if (!mounted) return;
+    final proxima = _copia.estado.value.proxima(DateTime.now());
+    showToast(
+      proxima == null
+          ? 'Listo: la copia se hace solo cuando la pidas.'
+          : '${frecuencia.etiqueta}, desde ahora. La próxima: ${_cuandoSera(proxima, DateTime.now())}',
+    );
   }
 
   Future<void> _copiarAhora() async {
@@ -199,6 +215,7 @@ class _AjustesScreenState extends State<AjustesScreen> with ToastMixin {
                             _Opciones(
                               estado: e,
                               protegida: _protegida,
+                              onFrecuencia: _cambiarFrecuencia,
                               onSoloWifi: () => _copia.cambiarSoloWifi(!e.soloWifi),
                               onCodigo: _crearCodigo,
                               onDesconectar: _desconectar,
@@ -223,10 +240,29 @@ class _AjustesScreenState extends State<AjustesScreen> with ToastMixin {
   }
 }
 
+const _diasSemana = ['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo'];
+
+String _hora(DateTime f) {
+  final h = f.hour % 12 == 0 ? 12 : f.hour % 12;
+  // Espacios que no se cortan: "p. m." no queda partido entre dos renglones.
+  return '$h:${f.minute.toString().padLeft(2, '0')}\u00A0${f.hour < 12 ? 'a.\u00A0m.' : 'p.\u00A0m.'}';
+}
+
+/// "hoy a las 8:30 p. m." · "mañana a las…" · "el martes 3 de noviembre a las…".
+String _cuandoSera(DateTime f, DateTime ahora) {
+  if (!f.isAfter(ahora.add(const Duration(minutes: 1)))) return 'ahora mismo';
+  final dias = Formato.diasEntre(ahora, f);
+  final dia = switch (dias) {
+    0 => 'hoy',
+    1 => 'mañana',
+    _ => 'el ${_diasSemana[f.weekday - 1]} ${Formato.diaMes(f)}',
+  };
+  return '$dia a las ${_hora(f)}';
+}
+
 /// "hoy, 3:45 p. m." · "ayer, 9:10 a. m." · "12 de septiembre".
 String _cuando(DateTime f, DateTime ahora) {
-  final h = f.hour % 12 == 0 ? 12 : f.hour % 12;
-  final hora = '$h:${f.minute.toString().padLeft(2, '0')} ${f.hour < 12 ? 'a. m.' : 'p. m.'}';
+  final hora = _hora(f);
   final dias = Formato.diasEntre(f, ahora);
   if (dias == 0) return 'hoy, $hora';
   if (dias == 1) return 'ayer, $hora';
@@ -417,8 +453,8 @@ class _TarjetaCopia extends StatelessWidget {
     if (!e.conectada) {
       return Text(
         e.problema ??
-            'Guarda una copia cifrada de tu cajón en tu Google Drive. Se hace sola cada vez que guardas '
-                'algo, y solo tú puedes abrirla.',
+            'Guarda una copia cifrada de tu cajón en tu Google Drive. Se hace sola cada día, semana o mes '
+                '(tú eliges), y solo tú puedes abrirla.',
         style: AppText.secondary(15, height: 1.45),
       );
     }
@@ -493,12 +529,14 @@ class _Linea extends StatelessWidget {
 class _Opciones extends StatelessWidget {
   const _Opciones({
     required this.estado,
+    required this.onFrecuencia,
     required this.protegida,
     required this.onSoloWifi,
     required this.onCodigo,
     required this.onDesconectar,
   });
 
+  final ValueChanged<FrecuenciaCopia> onFrecuencia;
   final EstadoCopia estado;
   final bool? protegida;
   final VoidCallback onSoloWifi;
@@ -514,12 +552,47 @@ class _Opciones extends StatelessWidget {
         ? 'Tu celular no tiene bloqueo de pantalla: sin este código no podrías abrir la copia en otro '
               'celular. Te recomendamos crearlo.'
         : 'Por si estrenas celular y la copia no se abre sola.';
+    final ahora = DateTime.now();
+    final proxima = estado.proxima(ahora);
+    final desde = estado.desde;
+    final cuenta = switch (estado.frecuencia) {
+      FrecuenciaCopia.manual => 'Solo cuando toques «Hacer copia ahora».',
+      _ when proxima == null => 'Se hace sola a la hora en que la elegiste.',
+      _ when estado.esperandoWifi => 'Toca ahora: se hace apenas haya Wi-Fi.',
+      _ =>
+        'Próxima copia: ${_cuandoSera(proxima, ahora)}'
+            '${desde == null ? '' : '\nCuenta desde el ${Formato.diaMes(desde)} a las ${_hora(desde)}'}',
+    };
     return Container(
       decoration: AppDecor.tarjeta(),
       clipBehavior: Clip.antiAlias,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(18, 16, 16, 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              spacing: 10,
+              children: [
+                Text('Cada cuánto se hace', style: AppText.bold(16)),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final f in FrecuenciaCopia.values)
+                      _OpcionFrecuencia(
+                        etiqueta: f.etiqueta,
+                        elegida: f == estado.frecuencia,
+                        onTap: () => onFrecuencia(f),
+                      ),
+                  ],
+                ),
+                Semantics(liveRegion: true, child: Text(cuenta, style: AppText.secondary(14, height: 1.4))),
+              ],
+            ),
+          ),
+          Divider(height: 1, color: AppColors.divisor),
           Semantics(
             toggled: estado.soloWifi,
             label: 'Solo con Wi-Fi',
@@ -585,6 +658,35 @@ class _Opciones extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Una de las opciones de "Cada cuánto se hace" (dentro de la tarjeta, así
+/// que la que no está elegida lleva el color del fondo).
+class _OpcionFrecuencia extends StatelessWidget {
+  const _OpcionFrecuencia({required this.etiqueta, required this.elegida, required this.onTap});
+
+  final String etiqueta;
+  final bool elegida;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return TcTap(
+      onTap: onTap,
+      selected: elegida,
+      color: elegida ? AppColors.primario : AppColors.fondo,
+      radius: 22,
+      minHeight: 44,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      child: Center(
+        widthFactor: 1,
+        child: Text(
+          etiqueta,
+          style: AppText.bold(14, color: elegida ? AppColors.sobrePrimario : AppColors.texto),
+        ),
       ),
     );
   }

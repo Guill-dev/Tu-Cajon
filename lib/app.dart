@@ -117,7 +117,7 @@ class _TuCajonAppState extends State<TuCajonApp> {
     _recepcion = Recepcion(buzon: widget.buzon, navegador: _navegador, cerrojo: _cerrojo);
     widget.recordatorios.iniciar(_recepcion.abrirDocumento);
     _avisos = ProgramadorDeAvisos(repo: widget.repo, recordatorios: widget.recordatorios);
-    _copias = ProgramadorDeCopias(copia: widget.copia, repo: widget.repo);
+    _copias = ProgramadorDeCopias(copia: widget.copia);
     _lectorDelCajon = LectorDelCajon(repo: widget.repo, lectura: _lectura);
   }
 

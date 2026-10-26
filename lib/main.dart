@@ -1,12 +1,16 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'app.dart';
 import 'core/theme/tema_del_celular.dart';
+import 'core/copia/cuenta_google.dart';
 import 'core/copia/llaves_de_copia.dart';
 import 'core/copia/red.dart';
 import 'data/copia/copia_de_seguridad.dart';
+import 'data/copia/copia_en_segundo_plano.dart';
 import 'data/copia/nube_de_prueba.dart';
+import 'data/copia/nube_drive.dart';
 import 'data/db/conexion.dart';
 import 'features/error/error_apertura.dart';
 
@@ -21,11 +25,18 @@ Future<void> _arrancar() async {
   try {
     // Abre la base de datos cifrada (en web: datos de ejemplo en memoria).
     final repo = await abrirRepositorio();
-    // Mientras no esté conectada con Google Drive, la copia se prueba en una
-    // carpeta dentro del mismo celular (NubeDePrueba).
+    final conDrive = !kIsWeb && clienteWebDeGoogle.isNotEmpty;
+    if (conDrive) await prepararCopiasEnSegundoPlano();
+    // La copia va a Google Drive. Mientras el proyecto de Google no esté
+    // configurado (o en la vista web), se prueba en una carpeta dentro del
+    // mismo celular (NubeDePrueba).
     final copia = CopiaDeSeguridad(
       repo: repo,
-      nube: NubeDePrueba(),
+      nube: conDrive
+          ? NubeDrive(cuenta: CuentaGoogleDelSistema(clienteWeb: clienteWebDeGoogle))
+          : NubeDePrueba(),
+      // Android despierta a la app a la hora de cada copia (cada día, semana o mes).
+      agenda: conDrive ? AgendaDelSistema() : null,
       llaves: LlavesDeCopia.paraEstaPlataforma(),
       red: Red.paraEstaPlataforma(),
     );

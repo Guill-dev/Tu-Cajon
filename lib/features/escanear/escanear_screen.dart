@@ -756,7 +756,7 @@ class _EscanearScreenState extends State<EscanearScreen>
         return [
           _AvisoCamara(
             titulo: 'Tu Cajón necesita la cámara',
-            texto: 'La usamos solo para fotografiar tus documentos. Las fotos se guardan cifradas en este celular y no se suben a internet.',
+            texto: 'La usamos solo para fotografiar tus documentos. Las fotos se guardan cifradas en este celular (y en tu Google Drive, también cifradas, solo si activas la copia).',
             boton: 'Permitir la cámara',
             onBoton: () => _iniciar(pedir: true),
             onSubir: _volverAAgregar,

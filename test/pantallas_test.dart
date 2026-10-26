@@ -10,6 +10,7 @@ import 'package:tu_cajon/core/compartir/compartidor.dart';
 import 'package:tu_cajon/core/copia/llaves_de_copia.dart';
 import 'package:tu_cajon/core/copia/red.dart';
 import 'package:tu_cajon/data/copia/copia_de_seguridad.dart';
+import 'package:tu_cajon/data/copia/frecuencia_copia.dart';
 import 'package:tu_cajon/data/copia/nube.dart';
 import 'package:tu_cajon/data/compartir/pdf_documento.dart';
 import 'package:tu_cajon/core/router/app_routes.dart';
@@ -709,6 +710,16 @@ void main() {
       // Solo con Wi-Fi: se apaga y se recuerda.
       await tocar(tester, find.text('Solo con Wi-Fi'));
       expect(copia.estado.value.soloWifi, isFalse);
+
+      // Cada cuánto: cada día desde que se conectó; se cambia a cada semana o a mano.
+      expect(copia.estado.value.frecuencia, FrecuenciaCopia.diaria);
+      expect(find.textContaining('Próxima copia: mañana a las'), findsOneWidget);
+      await tocar(tester, find.text('Cada semana'));
+      await tester.pump();
+      expect(copia.estado.value.frecuencia, FrecuenciaCopia.semanal);
+      expect(find.textContaining('Próxima copia: el '), findsOneWidget);
+      await tocar(tester, find.text('A mano'));
+      expect(find.text('Solo cuando toques «Hacer copia ahora».'), findsOneWidget);
 
       // El código de emergencia se muestra una sola vez.
       await tocar(tester, find.text('Crear'));
