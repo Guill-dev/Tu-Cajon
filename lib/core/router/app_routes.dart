@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/archivos/buzon.dart';
+import '../../data/copia/copia_de_seguridad.dart';
 import '../../data/models/documento.dart';
 import '../../data/models/perfil.dart';
 import '../../features/agregar/agregar_screen.dart';
@@ -88,7 +89,8 @@ abstract final class AppRoutes {
       nuevoPerfil => const AgregarPerfilScreen(),
       editarPerfil => AgregarPerfilScreen(perfil: args is Perfil ? args : null),
       ajustes => const AjustesScreen(),
-      recuperar => const RecuperarScreen(),
+      // Recuperar: desde Ajustes llega con la copia que ya se encontró.
+      recuperar => RecuperarScreen(encontrada: args is CopiaEncontrada ? args : null),
       catalogo => const CatalogoScreen(),
       _ => const CargaScreen(),
     };

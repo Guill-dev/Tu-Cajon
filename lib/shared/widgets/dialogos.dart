@@ -97,6 +97,47 @@ Future<AlEliminarPerfil?> confirmarEliminarPerfil(
   );
 }
 
+/// Qué hacer con la copia que ya estaba en la cuenta al conectar Google Drive.
+enum ConLaCopia { restaurar, borrar }
+
+/// Al conectar Google Drive, la cuenta ya tenía una copia con cosas que este
+/// celular no tiene. [cual]: de cuándo es y qué tiene; [texto]: qué pasa al
+/// restaurarla. Sin [sePuedeRestaurar] (la llave no está y no hay código),
+/// solo se puede borrar o dejar así. `null`: dejarla así.
+Future<ConLaCopia?> preguntarPorLaCopia(
+  BuildContext context, {
+  required String cual,
+  required String texto,
+  required bool sePuedeRestaurar,
+}) {
+  return showDialog<ConLaCopia>(
+    context: context,
+    builder: (context) {
+      void elegir(ConLaCopia? e) => Navigator.of(context).pop(e);
+      Widget ancho(Widget boton) => SizedBox(width: double.infinity, child: boton);
+      return DialogoTc(
+        titulo: 'Ya tienes una copia en esta cuenta',
+        contenido: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          spacing: 10,
+          children: [
+            Text(cual, style: AppText.bold(16, height: 1.4)),
+            Text(texto, style: AppText.secondary(15, height: 1.4)),
+          ],
+        ),
+        acciones: [
+          if (sePuedeRestaurar)
+            ancho(SmallButton(label: 'Restaurar mi copia', onTap: () => elegir(ConLaCopia.restaurar))),
+          ancho(
+            _BotonPeligro(etiqueta: 'Borrarla y empezar de nuevo', onTap: () => elegir(ConLaCopia.borrar)),
+          ),
+          ancho(SmallButton(label: 'Dejarla así', filled: false, onTap: () => elegir(null))),
+        ],
+      );
+    },
+  );
+}
+
 /// Salir con cambios sin guardar. Devuelve `true` si el usuario quiere salir.
 Future<bool> confirmarSalirSinGuardar(BuildContext context) async {
   final ok = await showDialog<bool>(

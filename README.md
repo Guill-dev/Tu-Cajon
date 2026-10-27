@@ -45,7 +45,7 @@ lib/
 │   ├── icons/app_icons.dart   Los íconos del diseño como trazos SVG (idénticos al prototipo).
 │   ├── router/app_routes.dart Nombres de las rutas y qué pantalla abre cada una.
 │   ├── seguridad/             Llave del celular (huella/PIN) y cerrojo al salir de la app.
-│   ├── copia/                 Para la copia de seguridad: dónde vive su llave (Block Store)
+│   ├── copia/                 Para la copia de seguridad: dónde vive su llave en el celular
 │                              y si hay Wi-Fi.
 │   ├── avisos/                Notificaciones: avisos de vencimiento y recordatorios.
 │   ├── compartir/             Arma el PDF y lo entrega a WhatsApp o al menú de compartir.
@@ -89,13 +89,14 @@ lib/
     ├── texto/                 Lo que dice el documento: todo el texto leído, para copiarlo
     ├── preguntar/             11 · Pregúntale a tu cajón (chat IA)
     ├── ajustes/               Ajustes: apariencia (día/noche) y copia de seguridad en Google Drive
-    ├── recuperar/             Recuperar mi cajón (al estrenar celular)
+    ├── recuperar/             Recuperar mi cajón (al estrenar celular o tras borrar los datos)
     ├── perfil/                12 · Nuevo perfil (Mamá, mascotas…), editar o eliminar un perfil, y
     │                          ajustar su foto de la galería en un círculo
     └── catalogo/              Solo desarrollo: lista de todas las pantallas
 
 test/copia_test.dart           Copia de seguridad: cifrado, solo sube lo nuevo, recuperar con
-                               la llave o con el código de emergencia, Wi-Fi y errores.
+                               la llave de Drive (también tras borrar los datos) o con el código
+                               de emergencia, conectar una cuenta que ya tiene copia, Wi-Fi y errores.
 test/bordes_test.dart          Bordes del papel: hoja torcida, cédula (también de lejos), mesa de madera,
                                un dedo encima, casos sin papel claro, qué papel es, y enderezar.
 test/lectura_test.dart         Leer documentos: entender cédula, pasaporte, licencia, SOAT, RUT,
@@ -260,10 +261,15 @@ Ajustes / Recuperar ──context.copia──▶ CopiaDeSeguridad (data/copia/)
 ```
 
 - **Todo va cifrado antes de salir** (AES-256-GCM, `data/copia/cifrado_copia.dart`) con una
-  llave propia de la copia (32 bytes al azar). Google guarda archivos que no puede abrir.
-- **Qué sube:** `tucajon-indice.bin` (perfiles, documentos, fechas, en JSON cifrado), un
-  `tucajon-doc-<id>-<versión>.bin` por documento con sus fotos o su PDF, y
-  `tucajon-emergencia.bin` si hay código de emergencia.
+  llave propia de la copia (32 bytes al azar).
+- **La llave va con la copia** (`tucajon-llave.bin`), en la carpeta oculta de la app en Drive:
+  para restaurar basta conectar la misma cuenta de Google, también después de borrar los datos
+  de la app (Android borra con ellos la llave del celular y la de Block Store) o en un celular
+  nuevo. No hay contraseñas ni códigos que recordar. Quien abre la copia es quien entra a esa
+  cuenta de Google con Tu Cajón; otras apps y la web de Drive no ven esa carpeta.
+- **Qué sube:** `tucajon-llave.bin`, `tucajon-indice.bin` (perfiles, documentos, fechas, en JSON
+  cifrado) y un `tucajon-doc-<id>-<versión>.bin` por documento con sus fotos o su PDF. Las
+  copias hechas antes de que la llave fuera a Drive la reciben en su siguiente copia.
 - **Solo sube lo nuevo:** si un documento no cambió, su archivo ya está en la nube. Primero se
   suben los archivos, después el índice y al final se borra lo que ya no se usa, así la copia
   de la nube siempre está completa.
@@ -279,16 +285,18 @@ Ajustes / Recuperar ──context.copia──▶ CopiaDeSeguridad (data/copia/)
   que ya estaba conectada.
 - **Al abrir la app** (`ProgramadorDeCopias`): si a una copia ya le tocó y no se hizo (el celular
   estaba apagado o sin internet), se hace de una vez. "Hacer copia ahora" no espera el Wi-Fi.
-- **Sin contraseñas:** la llave de la copia se guarda en **Block Store** de Google
-  (`CopiaDeSeguridad.kt`), protegida con el PIN, patrón o contraseña de bloqueo del celular,
-  de extremo a extremo. Al estrenar celular y restaurar la cuenta de Google, la llave llega
-  sola (Android 12 o más nuevo; Pixel desde Android 9).
-- **Código de emergencia** (opcional, Ajustes): 16 letras y números que protegen otra copia
-  de la llave. Sirve si el celular nuevo no restauró la cuenta de Google o el viejo no tenía
-  bloqueo de pantalla. Se muestra una sola vez.
-- **Recuperar** (bienvenida → "¿Ya tenías Tu Cajón…?"): busca la copia, la abre con la llave
-  o con el código, y cambia todo el cajón por el de la copia (`restaurar` en el repositorio:
-  todo o nada). Después sigue a la llave del cajón de ese celular.
+- **En el celular**, la llave se guarda en el almacén seguro y en **Block Store** de Google
+  (`CopiaDeSeguridad.kt`), para seguir haciendo copias.
+- **Código de emergencia:** las copias de versiones anteriores (sin la llave en Drive) pueden
+  tener uno; al recuperarlas se pide. Ya no se crean desde Ajustes.
+- **Conectar una cuenta que ya tiene copia** (Ajustes): si la copia tiene algo que este celular
+  no tiene, no se toca nada y se pregunta: **Restaurar mi copia**, **Borrarla y empezar de
+  nuevo** (pide confirmar otra vez) o **Dejarla así**. Si es la copia de este mismo celular,
+  sigue con ella sin preguntar.
+- **Recuperar** (bienvenida → "¿Ya tenías Tu Cajón…?", o "Restaurar mi copia" en Ajustes):
+  busca la copia, la abre y la trae (`restaurar` en el repositorio: todo o nada). Lo que ya
+  hubiera en el celular y la copia no tenga se queda. Desde la bienvenida sigue a la llave del
+  cajón; desde Ajustes vuelve al cajón.
 - **Google Drive** (`data/copia/nube_drive.dart`): habla con la API de Drive v3 directo, en la
   carpeta oculta de la app (`appDataFolder`), con subidas reanudables (sirven para archivos
   grandes). El permiso es solo `drive.appdata` (`core/copia/cuenta_google.dart`, con

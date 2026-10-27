@@ -28,13 +28,16 @@ class CopiaIlegible implements Exception {
 ///   dato asociado: si alguien le cambia el nombre en la nube, ya no abre.
 /// - Formato: `versión (1 byte) + nonce (12) + texto cifrado + MAC (16)`.
 /// - El código de emergencia (16 letras y números, 80 bits al azar) protege
-///   una copia de la llave que también va a la nube, por si la llave no
-///   llega sola a un celular nuevo.
+///   una copia de la llave que también va a la nube. Lo usaban las copias de
+///   antes, cuando la llave misma no iba a la nube.
 abstract final class CifradoCopia {
   static final _aes = AesGcm.with256bits();
   static const _version = 1;
 
-  static Uint8List nuevaLlave() => _alAzar(32);
+  /// Bytes de la llave de la copia.
+  static const largoLlave = 32;
+
+  static Uint8List nuevaLlave() => _alAzar(largoLlave);
 
   static Uint8List _alAzar(int n) {
     final r = Random.secure();

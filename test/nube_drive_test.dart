@@ -209,7 +209,7 @@ void main() {
       );
       final llaves = LlavesSimuladas();
       final copia = CopiaDeSeguridad(repo: repo, nube: nube, llaves: llaves, red: RedSimulada());
-      expect(await copia.conectar(), isTrue);
+      expect(await copia.conectar(), isNull);
       await copia.hacerCopia();
       expect(copia.estado.value.problema, isNull);
       // En Drive solo hay bytes cifrados.

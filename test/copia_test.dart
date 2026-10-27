@@ -135,7 +135,7 @@ void main() {
       await a.guardar('RUT', [
         bytes([7, 8, 9]),
       ]);
-      expect(await a.copia.conectar(), isTrue);
+      expect(await a.copia.conectar(), isNull);
       await a.copia.hacerCopia();
 
       final nombres = a.nube.archivos.keys.toSet();
@@ -326,11 +326,41 @@ void main() {
       expect(nube.subidos.where((n) => n.startsWith('tucajon-doc-')), isEmpty);
     });
 
-    test('sin la llave, se abre con el código de emergencia', () async {
+    test('con solo la cuenta de Google: la llave va con la copia', () async {
+      final nube = NubeEnMemoria();
+      final (a, llave) = await celularViejo(nube);
+      expect(nube.archivos[CopiaDeSeguridad.archivoLlave]!.$1, llave);
+
+      // Celular nuevo, sin Block Store ni código.
+      final b = Celular(nube, ejemplo: false);
+      final copia = (await b.copia.buscarCopia())!;
+      expect(copia.abierta, isTrue);
+      await b.copia.recuperar(copia);
+      expect(
+        (await b.repo.leerContenido()).documentos.length,
+        (await a.repo.leerContenido()).documentos.length,
+      );
+      expect(await b.llaves.leer(), llave);
+    });
+
+    test('una copia de antes recibe la llave en su siguiente copia', () async {
+      final nube = NubeEnMemoria();
+      final (a, llave) = await celularViejo(nube);
+      nube.archivos.remove(CopiaDeSeguridad.archivoLlave);
+      await a.copia.hacerCopia();
+      expect(nube.archivos[CopiaDeSeguridad.archivoLlave]!.$1, llave);
+      // Si ya está, no se vuelve a subir.
+      nube.subidos.clear();
+      await a.copia.hacerCopia();
+      expect(nube.subidos, isNot(contains(CopiaDeSeguridad.archivoLlave)));
+    });
+
+    test('una copia de antes (sin la llave en Drive) se abre con el código de emergencia', () async {
       final nube = NubeEnMemoria();
       final (a, _) = await celularViejo(nube);
       final codigo = await a.copia.crearCodigoDeEmergencia();
       expect(a.copia.estado.value.codigoCreado, isNotNull);
+      nube.archivos.remove(CopiaDeSeguridad.archivoLlave);
 
       final b = Celular(nube, ejemplo: false);
       final copia = await b.copia.buscarCopia();
@@ -355,6 +385,7 @@ void main() {
       final (a, _) = await celularViejo(nube);
       final viejo = await a.copia.crearCodigoDeEmergencia();
       final nuevo = await a.copia.crearCodigoDeEmergencia();
+      nube.archivos.remove(CopiaDeSeguridad.archivoLlave);
       final b = Celular(nube, ejemplo: false);
       final copia = (await b.copia.buscarCopia())!;
       await expectLater(b.copia.abrirConCodigo(copia, viejo), throwsA(isA<CodigoEquivocado>()));
@@ -388,10 +419,10 @@ void main() {
       await a.copia.conectar();
       await a.copia.hacerCopia();
       await a.copia.desconectar();
-      expect(await a.copia.conectar(), isTrue);
+      expect(await a.copia.conectar(), isNull);
     });
 
-    test('si es de otro celular, pregunta; al reemplazar empieza de cero', () async {
+    test('si es de otro celular, la deja quieta y pregunta; al reemplazar empieza de cero', () async {
       final nube = NubeEnMemoria();
       final a = Celular(nube);
       await a.guardar('Cédula', [
@@ -399,17 +430,121 @@ void main() {
       ]);
       await a.copia.conectar();
       await a.copia.hacerCopia();
-      await a.copia.crearCodigoDeEmergencia();
+      final antes = Map.of(nube.archivos);
 
       final b = Celular(nube, ejemplo: false);
-      expect(await b.copia.conectar(), isFalse);
+      final encontrada = await b.copia.conectar();
+      expect(encontrada, isNotNull);
+      expect(encontrada!.abierta, isTrue);
       expect(b.copia.estado.value.conectada, isFalse);
-      await b.copia.reemplazarCopiaAjena();
+      // Mientras no se elija, no se toca nada.
+      await b.copia.hacerCopia();
+      expect(nube.archivos, antes);
+
+      await b.copia.reemplazarCopia();
       expect(b.copia.estado.value.conectada, isTrue);
       expect(nube.archivos, isEmpty);
       await b.copia.hacerCopia();
       expect(nube.archivos.keys.where((n) => n.startsWith('tucajon-doc-')), isEmpty);
       expect(nube.archivos, contains(CopiaDeSeguridad.archivoIndice));
+      // La llave nueva: la de la copia que se borró ya no sirve.
+      expect(nube.archivos[CopiaDeSeguridad.archivoLlave]!.$1, await b.llaves.leer());
+    });
+
+    test('tras borrar los datos de la app se puede restaurar, y lo nuevo se queda', () async {
+      final nube = NubeEnMemoria();
+      final a = Celular(nube, ejemplo: false);
+      await a.repo.guardarNombre('Marta');
+      await a.guardar('Cédula', [
+        bytes([1, 2]),
+      ]);
+      await a.copia.conectar();
+      await a.copia.hacerCopia();
+      final antes = Map.of(nube.archivos);
+
+      // Datos borrados: el cajón está vacío y la llave ya no está en el
+      // celular (Android también la borra de Block Store). Antes de
+      // conectar, se guardó algo nuevo.
+      final b = Celular(nube, ejemplo: false);
+      await b.guardar('Recibo nuevo', [
+        bytes([9]),
+      ]);
+      final encontrada = (await b.copia.conectar())!;
+      expect(nube.archivos, antes);
+      expect(encontrada.abierta, isTrue);
+
+      await b.copia.recuperar(encontrada);
+      final ahora = await b.repo.leerContenido();
+      expect(ahora.nombre, 'Marta');
+      expect(ahora.documentos.map((d) => d.nombre).toSet(), {'Cédula', 'Recibo nuevo'});
+      final cedula = ahora.documentos.firstWhere((d) => d.nombre == 'Cédula');
+      final recibo = ahora.documentos.firstWhere((d) => d.nombre == 'Recibo nuevo');
+      expect(await b.repo.leerPaginas(cedula), [
+        bytes([1, 2]),
+      ]);
+      expect(await b.repo.leerPaginas(recibo), [
+        bytes([9]),
+      ]);
+
+      // Sigue con la misma copia, y la próxima ya lleva lo nuevo.
+      expect(b.copia.estado.value.conectada, isTrue);
+      nube.subidos.clear();
+      await b.copia.hacerCopia();
+      expect(nube.subidos.where((n) => n.startsWith('tucajon-doc-')), [CopiaDeSeguridad.archivoDe(recibo)]);
+      expect(nube.archivos, contains(CopiaDeSeguridad.archivoDe(cedula)));
+    });
+
+    test('con la llave en el celular también pregunta si a este le falta algo', () async {
+      final nube = NubeEnMemoria();
+      final a = Celular(nube);
+      await a.guardar('Cédula', [
+        bytes([1]),
+      ]);
+      await a.copia.conectar();
+      await a.copia.hacerCopia();
+      final antes = Map.of(nube.archivos);
+
+      // La llave llegó sola (Block Store), pero el cajón está vacío: si se
+      // conectara de una vez, la próxima copia dejaría la nube vacía.
+      final b = Celular(
+        nube,
+        llaves: LlavesSimuladas(deOtroCelular: (await a.llaves.leer())!),
+        ejemplo: false,
+      );
+      final encontrada = (await b.copia.conectar())!;
+      expect(encontrada.abierta, isTrue);
+      expect(b.copia.estado.value.conectada, isFalse);
+      expect(nube.archivos, antes);
+      await b.copia.recuperar(encontrada);
+      expect((await b.repo.leerContenido()).documentos.map((d) => d.nombre), contains('Cédula'));
+    });
+
+    test('una copia de antes sin llave ni código no se puede abrir', () async {
+      final nube = NubeEnMemoria();
+      final a = Celular(nube);
+      await a.copia.conectar();
+      await a.copia.hacerCopia();
+      nube.archivos.remove(CopiaDeSeguridad.archivoLlave);
+
+      final b = Celular(nube, ejemplo: false);
+      final encontrada = (await b.copia.conectar())!;
+      expect((encontrada.abierta, encontrada.conCodigo), (false, false));
+      await expectLater(b.copia.recuperar(encontrada), throwsStateError);
+    });
+
+    test('dejarla así: se desconecta y la copia queda igual', () async {
+      final nube = NubeEnMemoria();
+      final a = Celular(nube);
+      await a.copia.conectar();
+      await a.copia.hacerCopia();
+      final antes = Map.of(nube.archivos);
+
+      final b = Celular(nube, ejemplo: false);
+      expect(await b.copia.conectar(), isNotNull);
+      await b.copia.desconectar();
+      expect(b.copia.estado.value.conectada, isFalse);
+      expect(nube.archivos, antes);
+      await expectLater(b.copia.reemplazarCopia(), throwsStateError);
     });
   });
 

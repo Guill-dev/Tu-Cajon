@@ -1,10 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../../core/formato.dart';
 import '../../core/icons/app_icons.dart';
+import '../../core/router/app_routes.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_decor.dart';
 import '../../core/theme/app_text.dart';
@@ -35,9 +35,6 @@ class AjustesScreen extends StatefulWidget {
 class _AjustesScreenState extends State<AjustesScreen> with ToastMixin {
   bool _conectando = false;
 
-  /// Si la llave viaja sola a otro celular (bloqueo de pantalla + Block Store).
-  bool? _protegida;
-
   late final CopiaDeSeguridad _copia = context.copia;
 
   @override
@@ -45,30 +42,15 @@ class _AjustesScreenState extends State<AjustesScreen> with ToastMixin {
     super.initState();
     // Pudo hacerse una copia programada con la app en segundo plano.
     _copia.recargar();
-    _copia.llaveProtegidaConBloqueo().then((p) {
-      if (mounted) setState(() => _protegida = p);
-    });
   }
 
   Future<void> _conectar() async {
     setState(() => _conectando = true);
     try {
-      final lista = await _copia.conectar();
-      if (!lista) {
-        if (!mounted) return;
-        final reemplazar = await confirmar(
-          context,
-          titulo: 'Ya hay una copia en esta cuenta',
-          texto:
-              'Es de otro celular y este no la puede abrir. Si sigues, esa copia se borra y queda la de '
-              'este celular.',
-          accion: 'Reemplazarla',
-        );
-        if (!reemplazar) {
-          await _copia.desconectar();
-          return;
-        }
-        await _copia.reemplazarCopiaAjena();
+      final encontrada = await _copia.conectar();
+      if (encontrada != null) {
+        await _yaHayCopia(encontrada);
+        return;
       }
       // La primera copia, de una vez.
       unawaited(_copia.hacerCopia());
@@ -81,6 +63,62 @@ class _AjustesScreenState extends State<AjustesScreen> with ToastMixin {
       if (mounted) showToast('No se pudo conectar. Intenta de nuevo.');
     } finally {
       if (mounted) setState(() => _conectando = false);
+    }
+  }
+
+  /// La cuenta ya tenía una copia con cosas que este celular no tiene (se
+  /// borraron los datos de la app, o es de otro celular). Nada se toca hasta
+  /// elegir: restaurarla, borrarla (con otra confirmación) o dejarla así.
+  Future<void> _yaHayCopia(CopiaEncontrada encontrada) async {
+    final indice = encontrada.indice;
+    final fecha = 'Copia del ${Formato.fechaLarga(encontrada.fecha)}';
+    final cual = indice == null
+        ? '$fecha · ${Formato.tamano(encontrada.bytes)}'
+        : '$fecha\n${resumenDe(indice.contenido)}';
+    final texto = indice != null
+        ? 'Tiene cosas que este celular no tiene. Al restaurarla vuelven a tu cajón, y lo que ya tienes '
+              'aquí se queda.'
+        : encontrada.conCodigo
+        ? 'Para abrirla en este celular te pediremos el código de emergencia que anotaste. Lo que ya '
+              'tienes aquí se queda.'
+        : 'Es de antes de que la llave se guardara en tu Drive: su llave no está ni en Drive ni en este '
+              'celular, y no tiene código de emergencia, así que nadie la puede abrir. Puedes borrarla y '
+              'empezar una copia nueva.';
+    while (true) {
+      if (!mounted) return;
+      final eleccion = await preguntarPorLaCopia(
+        context,
+        cual: cual,
+        texto: texto,
+        sePuedeRestaurar: encontrada.abierta || encontrada.conCodigo,
+      );
+      if (!mounted) return;
+      switch (eleccion) {
+        case ConLaCopia.restaurar:
+          await Navigator.of(context).pushNamed(AppRoutes.recuperar, arguments: encontrada);
+          // Volvió sin traerla: la copia sigue como estaba.
+          if (!_copia.estado.value.conectada) await _copia.desconectar();
+          return;
+        case ConLaCopia.borrar:
+          final seguro = await confirmar(
+            context,
+            titulo: '¿Borrar tu copia de Drive?',
+            texto:
+                'La copia del ${Formato.fechaLarga(encontrada.fecha)}'
+                '${indice == null ? '' : ', con ${resumenDe(indice.contenido)},'} se borra para siempre y '
+                'no se puede recuperar. Desde ahora la copia será la de este celular.',
+            accion: 'Borrar la copia',
+            cancelar: 'No, volver',
+          );
+          if (!seguro) continue;
+          await _copia.reemplazarCopia();
+          unawaited(_copia.hacerCopia());
+          return;
+        case null:
+          await _copia.desconectar();
+          if (mounted) showToast('Tu copia sigue en Drive, sin cambios.');
+          return;
+      }
     }
   }
 
@@ -113,70 +151,6 @@ class _AjustesScreenState extends State<AjustesScreen> with ToastMixin {
     );
     if (ok) await _copia.desconectar();
   }
-
-  Future<void> _crearCodigo() async {
-    if (_copia.estado.value.codigoCreado != null) {
-      final ok = await confirmar(
-        context,
-        titulo: '¿Crear otro código?',
-        texto: 'El código que tienes anotado deja de servir. Tendrás que anotar el nuevo.',
-        accion: 'Crear otro',
-      );
-      if (!ok) return;
-    }
-    try {
-      final codigo = await _copia.crearCodigoDeEmergencia();
-      if (mounted) await _mostrarCodigo(codigo);
-    } on ProblemaNube catch (e) {
-      if (mounted) showToast(e.mensaje);
-    } catch (e) {
-      debugPrint('No se pudo crear el código: $e');
-      if (mounted) showToast('No se pudo crear el código. Intenta de nuevo.');
-    }
-  }
-
-  Future<void> _mostrarCodigo(String codigo) => showDialog<void>(
-    context: context,
-    barrierDismissible: false,
-    builder: (context) => DialogoTc(
-      titulo: 'Tu código de emergencia',
-      contenido: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
-            decoration: BoxDecoration(
-              color: AppColors.primarioSuave,
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Text(
-                codigo,
-                style: AppText.bold(24, color: AppColors.primarioOscuro).copyWith(letterSpacing: 1.5),
-              ),
-            ),
-          ),
-          const SizedBox(height: 14),
-          Text(
-            'Anótalo en papel y guárdalo con tus cosas importantes. Solo lo necesitarías si estrenas '
-            'celular y tu copia no se abre sola.',
-            style: AppText.secondary(15, height: 1.4),
-          ),
-          const SizedBox(height: 8),
-          Text('No lo volveremos a mostrar.', style: AppText.bold(15)),
-        ],
-      ),
-      acciones: [
-        SmallButton(
-          label: 'Copiar',
-          filled: false,
-          onTap: () => Clipboard.setData(ClipboardData(text: codigo)),
-        ),
-        SmallButton(label: 'Ya lo anoté', onTap: () => Navigator.of(context).pop()),
-      ],
-    ),
-  );
 
   @override
   Widget build(BuildContext context) {
@@ -214,10 +188,8 @@ class _AjustesScreenState extends State<AjustesScreen> with ToastMixin {
                             const SizedBox(height: 12),
                             _Opciones(
                               estado: e,
-                              protegida: _protegida,
                               onFrecuencia: _cambiarFrecuencia,
                               onSoloWifi: () => _copia.cambiarSoloWifi(!e.soloWifi),
-                              onCodigo: _crearCodigo,
                               onDesconectar: _desconectar,
                             ),
                           ],
@@ -454,7 +426,7 @@ class _TarjetaCopia extends StatelessWidget {
       return Text(
         e.problema ??
             'Guarda una copia cifrada de tu cajón en tu Google Drive. Se hace sola cada día, semana o mes '
-                '(tú eliges), y solo tú puedes abrirla.',
+                '(tú eliges). Si ya tenías una, al conectar podrás restaurarla.',
         style: AppText.secondary(15, height: 1.45),
       );
     }
@@ -530,28 +502,17 @@ class _Opciones extends StatelessWidget {
   const _Opciones({
     required this.estado,
     required this.onFrecuencia,
-    required this.protegida,
     required this.onSoloWifi,
-    required this.onCodigo,
     required this.onDesconectar,
   });
 
   final ValueChanged<FrecuenciaCopia> onFrecuencia;
   final EstadoCopia estado;
-  final bool? protegida;
   final VoidCallback onSoloWifi;
-  final VoidCallback onCodigo;
   final VoidCallback onDesconectar;
 
   @override
   Widget build(BuildContext context) {
-    final codigo = estado.codigoCreado;
-    final textoCodigo = codigo != null
-        ? 'Creado el ${Formato.fechaLarga(codigo)}. Si lo perdiste, crea otro.'
-        : protegida == false
-        ? 'Tu celular no tiene bloqueo de pantalla: sin este código no podrías abrir la copia en otro '
-              'celular. Te recomendamos crearlo.'
-        : 'Por si estrenas celular y la copia no se abre sola.';
     final ahora = DateTime.now();
     final proxima = estado.proxima(ahora);
     final desde = estado.desde;
@@ -623,30 +584,6 @@ class _Opciones extends StatelessWidget {
             ),
           ),
           Divider(height: 1, color: AppColors.divisor),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(18, 16, 16, 16),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    spacing: 4,
-                    children: [
-                      Text('Código de emergencia', style: AppText.bold(16)),
-                      Text(textoCodigo, style: AppText.secondary(14, height: 1.4)),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 12),
-                SmallButton(
-                  label: codigo == null ? 'Crear' : 'Crear otro',
-                  filled: codigo == null,
-                  onTap: onCodigo,
-                ),
-              ],
-            ),
-          ),
-          Divider(height: 1, color: AppColors.divisor),
           TcTap(
             onTap: onDesconectar,
             radius: 0,
@@ -697,14 +634,18 @@ class _ComoFunciona extends StatelessWidget {
 
   static const _puntos = [
     (AppIcons.celular, 'Tus documentos siguen viviendo en tu celular.'),
-    (AppIcons.candado, 'La copia va cifrada: Google la guarda, pero no la puede abrir.'),
+    (
+      AppIcons.candado,
+      'La copia va cifrada, en una carpeta privada de tu Drive: no se ve en Drive y otras apps no la '
+          'pueden abrir.',
+    ),
     (
       AppIcons.escudo,
-      'La llave de la copia se protege con el bloqueo de pantalla de tu celular. No hay contraseñas que recordar.',
+      'No hay contraseñas ni códigos que recordar: tu copia se abre con tu cuenta de Google.',
     ),
     (
       AppIcons.nube,
-      'Si estrenas celular, restaura tu cuenta de Google, instala Tu Cajón y elige “Recuperar mi cajón”.',
+      'Si estrenas celular o borras los datos de la app, conecta otra vez Google Drive y restaura tu copia.',
     ),
   ];
 

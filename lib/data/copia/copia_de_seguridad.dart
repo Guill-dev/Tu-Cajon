@@ -137,15 +137,19 @@ class CopiaEncontrada {
 /// La copia de seguridad del cajón en la nube (Google Drive).
 ///
 /// Qué sube, todo cifrado con la llave de la copia (ver [CifradoCopia]):
+/// - `tucajon-llave.bin`: la llave misma, sin cifrar. Así la copia se abre
+///   con solo conectar la misma cuenta de Google, también después de borrar
+///   los datos de la app o en un celular nuevo. Está en la carpeta privada
+///   de la app en Drive: no se ve en Drive y otras apps no la pueden leer.
 /// - `tucajon-indice.bin`: los datos (perfiles, documentos, fechas…).
 /// - `tucajon-doc-<id>-<versión>.bin`: los archivos de cada documento. Solo
 ///   se sube lo nuevo: si un documento no cambió, su archivo ya está allá.
 /// - `tucajon-emergencia.bin`: la llave protegida con el código de
-///   emergencia (si se creó uno).
+///   emergencia (copias de antes, si se creó uno).
 ///
-/// El orden cuida que la copia de la nube siempre esté completa: primero
-/// los archivos nuevos, después el índice y al final se borra lo que ya no
-/// se usa.
+/// El orden cuida que la copia de la nube siempre esté completa: primero la
+/// llave y los archivos nuevos, después el índice y al final se borra lo que
+/// ya no se usa.
 class CopiaDeSeguridad {
   CopiaDeSeguridad({
     required this.repo,
@@ -174,6 +178,7 @@ class CopiaDeSeguridad {
 
   // Nombres en la nube.
   static const archivoIndice = 'tucajon-indice.bin';
+  static const archivoLlave = 'tucajon-llave.bin';
   static const archivoEmergencia = 'tucajon-emergencia.bin';
   static const _prefijoDocumento = 'tucajon-doc-';
   static const _prefijo = 'tucajon-';
@@ -311,41 +316,87 @@ class CopiaDeSeguridad {
 
   // ── Conectar ───────────────────────────────────────────────────────────
 
-  /// Conecta la cuenta. Devuelve `false` si en esa cuenta ya hay una copia
-  /// que este celular no puede abrir (de otro celular): para seguir hay que
-  /// llamar a [reemplazarCopiaAjena], o a [desconectar] para dejarla así.
-  Future<bool> conectar() async {
+  /// Conecta la cuenta. Si en ella ya hay una copia con algo que este
+  /// celular no tiene (se borraron los datos de la app, o es de otro
+  /// celular), no la toca: la devuelve y la cuenta queda esperando a que la
+  /// persona elija qué hacer con ella:
+  /// - [recuperar] la trae (si no viene abierta, antes [abrirConCodigo]);
+  /// - [reemplazarCopia] la borra y empieza la de este celular;
+  /// - [desconectar] la deja como está.
+  ///
+  /// `null`: quedó conectada (no había copia, o era la de este celular).
+  Future<CopiaEncontrada?> conectar() async {
     await listo;
     final cuenta = await nube.conectar();
-    final hayCopia = (await nube.listar()).any((a) => a.nombre == archivoIndice);
-    if (hayCopia) {
-      final llave = await llaves.leer();
-      var abre = false;
-      if (llave != null) {
-        try {
-          await _leerIndice(llave);
-          abre = true;
-        } on LlaveEquivocada {
-          abre = false;
-        } on CopiaIlegible {
-          abre = false;
-        }
-      }
-      if (!abre) {
-        _cuentaPendiente = cuenta;
-        return false;
-      }
-    }
+    final copia = await _copiaEn(cuenta);
+    if (copia != null && !(copia.abierta && await _todoEstaAqui(copia.indice!.contenido))) return copia;
+    final llave = _llaveDeLaCopia;
+    _olvidarCopia();
     await _guardarCuenta(cuenta);
-    await _llaveOCrear();
-    return true;
+    if (llave != null) {
+      await llaves.guardar(llave);
+    } else {
+      await _llaveOCrear();
+    }
+    return null;
   }
 
-  String? _cuentaPendiente;
+  /// La cuenta y la llave de la copia encontrada que espera a que se elija
+  /// qué hacer con ella (la llave, solo si la copia se pudo abrir).
+  String? _cuentaDeLaCopia;
+  Uint8List? _llaveDeLaCopia;
 
-  /// Borra la copia que había en la cuenta y empieza una nueva, de este celular.
-  Future<void> reemplazarCopiaAjena() async {
-    final cuenta = _cuentaPendiente;
+  void _olvidarCopia() {
+    _cuentaDeLaCopia = null;
+    _llaveDeLaCopia = null;
+  }
+
+  /// La copia que hay en la cuenta (abierta si su llave está en la nube o en
+  /// este celular), o `null` si no hay.
+  Future<CopiaEncontrada?> _copiaEn(String cuenta) async {
+    final lista = await nube.listar();
+    final indice = lista.where((a) => a.nombre == archivoIndice).firstOrNull;
+    if (indice == null) return null;
+    _cuentaDeLaCopia = cuenta;
+    _llaveDeLaCopia = null;
+    final copia = CopiaEncontrada(
+      fecha: indice.modificado,
+      bytes: lista.where((a) => a.nombre.startsWith(_prefijo)).fold(0, (s, a) => s + a.bytes),
+      conCodigo: lista.any((a) => a.nombre == archivoEmergencia),
+    );
+    final candidatas = [
+      if (lista.any((a) => a.nombre == archivoLlave)) await nube.bajar(archivoLlave),
+      await llaves.leer(),
+    ];
+    for (final llave in candidatas.nonNulls) {
+      if (llave.length != CifradoCopia.largoLlave) continue;
+      try {
+        final leido = await _leerIndice(llave);
+        _llaveDeLaCopia = llave;
+        return copia.conIndice(leido);
+      } on LlaveEquivocada {
+        // Se prueba con la siguiente.
+      } on CopiaIlegible {
+        // Se prueba con la siguiente.
+      }
+    }
+    return copia;
+  }
+
+  /// Si todo lo de la copia ya está en este celular (es su propia copia):
+  /// seguir con ella no pierde nada.
+  Future<bool> _todoEstaAqui(ContenidoCajon deLaCopia) async {
+    final aqui = await repo.leerContenido();
+    final documentos = {for (final d in aqui.documentos) d.id};
+    final perfiles = {for (final p in aqui.perfiles) p.id};
+    return deLaCopia.documentos.every((d) => documentos.contains(d.id)) &&
+        deLaCopia.perfiles.every((p) => perfiles.contains(p.id));
+  }
+
+  /// Borra la copia que había en la cuenta y empieza una nueva, la de este
+  /// celular.
+  Future<void> reemplazarCopia() async {
+    final cuenta = _cuentaDeLaCopia;
     if (cuenta == null) throw StateError('No hay ninguna cuenta esperando');
     for (final a in await nube.listar()) {
       if (a.nombre.startsWith(_prefijo)) await nube.borrar(a.nombre);
@@ -353,14 +404,14 @@ class CopiaDeSeguridad {
     await llaves.guardar(CifradoCopia.nuevaLlave());
     await repo.guardarAjuste(_aCodigo, null);
     await repo.guardarAjuste(_aHuella, null);
-    _cuentaPendiente = null;
+    _olvidarCopia();
     await _guardarCuenta(cuenta);
   }
 
   /// Desconecta la cuenta. La copia se queda en la nube.
   Future<void> desconectar() async {
     await nube.desconectar();
-    _cuentaPendiente = null;
+    _olvidarCopia();
     for (final clave in [_aCuenta, _aUltima, _aDocumentos, _aBytes, _aHuella, _aDesde]) {
       await repo.guardarAjuste(clave, null);
     }
@@ -413,6 +464,12 @@ class CopiaDeSeguridad {
       final llave = await _llaveOCrear();
       final contenido = await repo.leerContenido();
       final enNube = {for (final a in await nube.listar()) a.nombre: a};
+
+      // 0. La llave, para abrir la copia con solo la cuenta de Google (las
+      //    copias de antes no la tenían).
+      if (enNube[archivoLlave] == null || !listEquals(await nube.bajar(archivoLlave), llave)) {
+        await nube.subir(archivoLlave, llave);
+      }
 
       // 1. Los archivos de cada documento: solo los que no estén ya.
       final conArchivos = contenido.documentos.where((d) => d.archivo != null).toList();
@@ -493,9 +550,6 @@ class CopiaDeSeguridad {
 
   // ── Código de emergencia ───────────────────────────────────────────────
 
-  /// Si la llave llega sola a otro celular (bloqueo de pantalla + Block Store).
-  Future<bool> llaveProtegidaConBloqueo() => llaves.protegidaConBloqueo();
-
   /// Crea un código de emergencia nuevo (el anterior deja de servir) y sube la
   /// llave protegida con él. Devuelve el código para mostrarlo una sola vez.
   Future<String> crearCodigoDeEmergencia() async {
@@ -509,38 +563,16 @@ class CopiaDeSeguridad {
     return codigo;
   }
 
-  // ── Recuperar (al estrenar celular) ────────────────────────────────────
+  // ── Recuperar (al estrenar celular o tras borrar los datos) ────────────
 
-  String? _cuentaRecuperada;
-  Uint8List? _llaveRecuperada;
-
-  /// Conecta la cuenta y busca una copia; `null` si no hay. Si la llave llegó
-  /// a este celular, la copia viene ya abierta; si no, hace falta
-  /// [abrirConCodigo].
+  /// Conecta la cuenta y busca una copia; `null` si no hay. Si la llave está
+  /// en este celular (o llegó sola), la copia viene ya abierta; si no, hace
+  /// falta [abrirConCodigo].
   Future<CopiaEncontrada?> buscarCopia() async {
     await listo;
-    final cuenta = await nube.conectar();
-    final lista = await nube.listar();
-    final indice = lista.where((a) => a.nombre == archivoIndice).firstOrNull;
-    if (indice == null) {
-      await nube.desconectar();
-      return null;
-    }
-    _cuentaRecuperada = cuenta;
-    final copia = CopiaEncontrada(
-      fecha: indice.modificado,
-      bytes: lista.where((a) => a.nombre.startsWith(_prefijo)).fold(0, (s, a) => s + a.bytes),
-      conCodigo: lista.any((a) => a.nombre == archivoEmergencia),
-    );
-    final llave = await llaves.leer();
-    if (llave == null) return copia;
-    try {
-      final leido = await _leerIndice(llave);
-      _llaveRecuperada = llave;
-      return copia.conIndice(leido);
-    } on LlaveEquivocada {
-      return copia;
-    }
+    final copia = await _copiaEn(await nube.conectar());
+    if (copia == null) await nube.desconectar();
+    return copia;
   }
 
   /// Abre la copia con el código de emergencia. Lanza [CodigoEquivocado] si
@@ -550,25 +582,44 @@ class CopiaDeSeguridad {
     if (codigo == null) throw const CodigoEquivocado();
     final llave = await CifradoCopia.desenvolverLlave(await nube.bajar(archivoEmergencia), codigo);
     final leido = await _leerIndice(llave);
-    _llaveRecuperada = llave;
+    _llaveDeLaCopia = llave;
     return copia.conIndice(leido);
   }
 
-  /// Trae la copia a este celular: cambia todo el cajón por el de la copia.
-  /// [progreso]: documentos listos de cuántos.
+  /// Trae la copia a este celular: el cajón queda como en la copia, y lo que
+  /// este celular tenga y la copia no (documentos o perfiles nuevos) se queda.
+  /// [progreso]: documentos de la copia listos de cuántos.
   Future<void> recuperar(CopiaEncontrada copia, {void Function(int hechos, int total)? progreso}) async {
     final indice = copia.indice;
-    final llave = _llaveRecuperada;
-    final cuenta = _cuentaRecuperada;
+    final llave = _llaveDeLaCopia;
+    final cuenta = _cuentaDeLaCopia;
     if (indice == null || llave == null || cuenta == null) {
       throw StateError('La copia todavía no está abierta');
     }
-    final total = indice.contenido.documentos.where((d) => d.archivo != null).length;
+    final deLaCopia = indice.contenido;
+    final aqui = await repo.leerContenido();
+    final perfilesDeLaCopia = {for (final p in deLaCopia.perfiles) p.id};
+    final documentosDeLaCopia = {for (final d in deLaCopia.documentos) d.id};
+    final soloAqui = {
+      for (final d in aqui.documentos)
+        if (!documentosDeLaCopia.contains(d.id)) d.id,
+    };
+    final juntos = ContenidoCajon(
+      nombre: deLaCopia.nombre.isEmpty ? aqui.nombre : deLaCopia.nombre,
+      perfiles: [...deLaCopia.perfiles, ...aqui.perfiles.where((p) => !perfilesDeLaCopia.contains(p.id))],
+      documentos: [...deLaCopia.documentos, ...aqui.documentos.where((d) => soloAqui.contains(d.id))],
+      descartadas: {...deLaCopia.descartadas, ...aqui.descartadas},
+    );
+    final total = deLaCopia.documentos.where((d) => d.archivo != null).length;
     var hechos = 0;
     progreso?.call(0, total);
     await repo.restaurar(
-      indice.contenido,
+      juntos,
       archivosDe: (d) async {
+        if (soloAqui.contains(d.id)) {
+          final paginas = await repo.leerPaginas(d);
+          return (paginas: paginas, pdf: paginas.isEmpty ? await repo.leerPdf(d) : null);
+        }
         final nombre = d.archivo!;
         final datos = await CifradoCopia.descifrar(await nube.bajar(nombre), llave, nombre: nombre);
         progreso?.call(++hechos, total);
@@ -581,6 +632,7 @@ class CopiaDeSeguridad {
     await repo.guardarAjuste(_aDocumentos, '${indice.documentos}');
     await repo.guardarAjuste(_aBytes, '${copia.bytes}');
     if (copia.conCodigo) await repo.guardarAjuste(_aCodigo, '${copia.fecha.millisecondsSinceEpoch}');
+    _olvidarCopia();
     await _guardarCuenta(cuenta);
     _poner(
       estado.value.copyWith(

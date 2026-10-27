@@ -689,7 +689,7 @@ void main() {
       return ((await llaves.leer())!, codigo);
     }
 
-    testWidgets('Ajustes: conectar, copia al día, código de emergencia y desconectar', (tester) async {
+    testWidgets('Ajustes: conectar, copia al día, cada cuánto y desconectar', (tester) async {
       final repo = MemoriaCajonRepositorio();
       final nube = NubeEnMemoria();
       final copia = CopiaDeSeguridad(repo: repo, nube: nube, llaves: LlavesSimuladas(), red: RedSimulada());
@@ -721,13 +721,9 @@ void main() {
       await tocar(tester, find.text('A mano'));
       expect(find.text('Solo cuando toques «Hacer copia ahora».'), findsOneWidget);
 
-      // El código de emergencia se muestra una sola vez.
-      await tocar(tester, find.text('Crear'));
-      expect(find.text('Tu código de emergencia'), findsOneWidget);
-      expect(find.text('No lo volveremos a mostrar.'), findsOneWidget);
-      await tocar(tester, find.text('Ya lo anoté'));
-      expect(find.textContaining('Creado el'), findsOneWidget);
-      expect(nube.archivos, contains(CopiaDeSeguridad.archivoEmergencia));
+      // La llave va con la copia: se restaura con solo la cuenta de Google.
+      expect(nube.archivos, contains(CopiaDeSeguridad.archivoLlave));
+      expect(find.text('Código de emergencia'), findsNothing);
 
       // Hacer copia ahora (arriba: la lista solo dibuja lo que se ve).
       await tester.scrollUntilVisible(
@@ -747,6 +743,56 @@ void main() {
       expect(nube.archivos, contains(CopiaDeSeguridad.archivoIndice));
       await tester.pump(const Duration(seconds: 3));
       expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('Ajustes: si la cuenta ya tiene copia, se puede restaurar o dejar así', (tester) async {
+      final nube = NubeEnMemoria();
+      final (llave, _) = await copiaDeOtroCelular(nube);
+      final antes = Map.of(nube.archivos);
+      final repo = MemoriaCajonRepositorio();
+      final copia = CopiaDeSeguridad(
+        repo: repo,
+        nube: nube,
+        llaves: LlavesSimuladas(deOtroCelular: llave),
+        red: RedSimulada(),
+      );
+      await abrirCon(tester, AppRoutes.cajon, repo: repo, copia: copia, args: CajonTab.inicio);
+      await tocar(tester, find.bySemanticsLabel('Ajustes'));
+
+      // Dejarla así: no se toca nada.
+      await tocar(tester, find.text('Conectar con Google'));
+      await tester.pump();
+      expect(find.text('Ya tienes una copia en esta cuenta'), findsOneWidget);
+      expect(find.textContaining('13 documentos · 2 perfiles'), findsOneWidget);
+      await tocar(tester, find.text('Dejarla así'));
+      expect(find.text('Tu copia sigue en Drive, sin cambios.'), findsOneWidget);
+      expect(find.text('Sin conectar'), findsOneWidget);
+      expect(nube.archivos, antes);
+
+      // Borrarla pide otra confirmación; "No, volver" regresa a elegir.
+      await tocar(tester, find.text('Conectar con Google'));
+      await tester.pump();
+      await tocar(tester, find.text('Borrarla y empezar de nuevo'));
+      expect(find.text('¿Borrar tu copia de Drive?'), findsOneWidget);
+      await tocar(tester, find.text('No, volver'));
+      expect(find.text('Ya tienes una copia en esta cuenta'), findsOneWidget);
+      expect(nube.archivos, antes);
+
+      await tocar(tester, find.text('Restaurar mi copia'));
+      await tester.pump();
+      await tocar(tester, find.widgetWithText(PrimaryButton, 'Recuperar mi cajón'));
+      await tester.pump();
+      expect(find.text('¡Listo, Marta!'), findsOneWidget);
+      expect(find.textContaining('Ya están en tu cajón.'), findsOneWidget);
+      final contenido = await repo.leerContenido();
+      expect(contenido.documentos.map((d) => d.nombre), contains('Tarjeta de propiedad'));
+      expect(copia.estado.value.conectada, isTrue);
+
+      // De vuelta al cajón (la llave del cajón ya estaba puesta).
+      await tocar(tester, find.text('Seguir'));
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.byType(CajonShell), findsOneWidget);
+      await tester.pump(const Duration(seconds: 5));
     });
 
     testWidgets('Recuperar desde la bienvenida con la llave que llegó sola', (tester) async {
@@ -789,6 +835,8 @@ void main() {
     testWidgets('Recuperar con el código de emergencia', (tester) async {
       final nube = NubeEnMemoria();
       final (_, codigo) = await copiaDeOtroCelular(nube, conCodigo: true);
+      // Una copia de antes, sin la llave en Drive.
+      nube.archivos.remove(CopiaDeSeguridad.archivoLlave);
       final repo = MemoriaCajonRepositorio(ejemplo: false);
       final copia = CopiaDeSeguridad(repo: repo, nube: nube, llaves: LlavesSimuladas(), red: RedSimulada());
       await abrirCon(tester, AppRoutes.recuperar, repo: repo, copia: copia);

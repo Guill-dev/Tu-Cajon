@@ -35,20 +35,31 @@ enum _Paso {
 /// Recuperar mi cajón: al estrenar celular, trae la copia de Google Drive.
 ///
 /// 1. Conecta la cuenta y busca la copia.
-/// 2. Si la llave llegó sola (Block Store), la copia ya se puede abrir; si
-///    no, pide el código de emergencia.
-/// 3. Muestra qué tiene la copia y la trae: cambia todo el cajón por ella.
+/// 2. La llave va con la copia en Drive, así que la copia se abre sola. Las
+///    copias de antes, sin la llave en Drive, piden el código de emergencia
+///    (si se creó uno).
+/// 3. Muestra qué tiene la copia y la trae (lo que ya hubiera en este
+///    celular se queda).
 /// 4. Sigue a la llave del cajón (huella o PIN) de este celular.
+///
+/// Desde Ajustes, al conectar una cuenta que ya tenía copia, llega con
+/// [encontrada]: empieza en el paso 2 y al final vuelve al cajón (la llave
+/// del cajón ya estaba puesta).
 class RecuperarScreen extends StatefulWidget {
-  const RecuperarScreen({super.key});
+  const RecuperarScreen({super.key, this.encontrada});
+
+  final CopiaEncontrada? encontrada;
 
   @override
   State<RecuperarScreen> createState() => _RecuperarScreenState();
 }
 
 class _RecuperarScreenState extends State<RecuperarScreen> {
-  _Paso _paso = _Paso.inicio;
-  CopiaEncontrada? _encontrada;
+  late _Paso _paso = switch (widget.encontrada) {
+    null => _Paso.inicio,
+    final e => e.abierta ? _Paso.lista : _Paso.faltaCodigo,
+  };
+  late CopiaEncontrada? _encontrada = widget.encontrada;
   String? _problema;
   String? _problemaCodigo;
   bool _abriendo = false;
@@ -151,8 +162,13 @@ class _RecuperarScreenState extends State<RecuperarScreen> {
     });
   }
 
-  /// Después de recuperar: la llave del cajón de este celular.
-  void _seguir() => Navigator.of(context).pushNamedAndRemoveUntil(AppRoutes.proteccion, (_) => false);
+  bool get _desdeAjustes => widget.encontrada != null;
+
+  /// Después de recuperar: la llave del cajón de este celular (o, si ya la
+  /// tenía, de vuelta al cajón).
+  void _seguir() =>
+      Navigator.of(context)
+          .pushNamedAndRemoveUntil(_desdeAjustes ? AppRoutes.cajon : AppRoutes.proteccion, (_) => false);
 
   @override
   Widget build(BuildContext context) {
@@ -230,7 +246,8 @@ class _RecuperarScreenState extends State<RecuperarScreen> {
           const SizedBox(height: 8),
           if (e.conCodigo) ...[
             _Texto(
-              'Pero la llave no llegó a este celular. Escribe el código de emergencia que anotaste.',
+              'Es de antes de que la llave se guardara en tu Drive. Escribe el código de emergencia que '
+              'anotaste.',
               suave: true,
             ),
             const SizedBox(height: 18),
@@ -254,9 +271,8 @@ class _RecuperarScreenState extends State<RecuperarScreen> {
             ),
           ] else ...[
             _Texto(
-              'Pero la llave no llegó a este celular, y esta copia no tiene código de emergencia. La llave '
-              'llega sola cuando configuras el celular restaurando tu cuenta de Google con el PIN o patrón '
-              'del celular anterior.',
+              'Pero es de antes de que la llave se guardara en tu Drive: su llave no está ni en Drive ni en '
+              'este celular, y no tiene código de emergencia, así que no se puede abrir.',
               suave: true,
             ),
             const Spacer(),
@@ -301,7 +317,11 @@ class _RecuperarScreenState extends State<RecuperarScreen> {
             ),
           ),
           const SizedBox(height: 14),
-          _Texto('Todo lo que tiene la copia queda en este celular, cifrado como siempre.', suave: true),
+          _Texto(
+            'Todo lo que tiene la copia queda en este celular, cifrado como siempre. Lo que ya tienes aquí '
+            'no se borra.',
+            suave: true,
+          ),
           const Spacer(),
           const SizedBox(height: 24),
           PrimaryButton(label: 'Recuperar mi cajón', onTap: _recuperar),
@@ -323,8 +343,8 @@ class _RecuperarScreenState extends State<RecuperarScreen> {
           _Texto(c.nombre.isEmpty ? '¡Listo!' : '¡Listo, ${c.nombre}!', fuerte: true),
           const SizedBox(height: 8),
           _Texto(
-            'Recuperamos ${n == 1 ? '1 documento' : '$n documentos'}. Ahora protege tu cajón con la llave '
-            'de este celular.',
+            'Recuperamos ${n == 1 ? '1 documento' : '$n documentos'}. '
+            '${_desdeAjustes ? 'Ya están en tu cajón.' : 'Ahora protege tu cajón con la llave de este celular.'}',
             suave: true,
           ),
           const Spacer(),
